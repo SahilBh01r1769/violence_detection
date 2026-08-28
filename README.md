@@ -1,304 +1,375 @@
-# 🛡️ Real-Time Violence Detection & Alert System
+# Real-Time Violence Detection & Alert System
 
-**Author:** Sahil Bhoir | **Stack:** YOLOv8 · OpenCV · FastAPI · Streamlit · Twilio · SMTP
+A video-monitoring application that combines a **pretrained YOLOv8 fight/violence detector** with OpenCV, temporal filtering, FastAPI, Streamlit, SMTP Email alerts, and Twilio WhatsApp alerts.
 
-An end-to-end pipeline that watches a webcam/RTSP/video-file stream, runs YOLOv8 inference
-on each frame, requires **N consecutive violent frames** before firing an alert (to suppress
-false positives), and dispatches Email + WhatsApp notifications with a cooldown so you don't
-get flooded. Includes a FastAPI backend and a 4-page Streamlit dashboard.
+**Training is not required.** The repository uses a public pretrained violence/fight checkpoint and keeps custom training as an optional utility only.
 
-> **Verification note:** This README was checked against the actual source in this repo —
-> every module was read, imported, and exercised (detector inference, temporal-consistency
-> window, alert cooldown + dispatch + history persistence, and all FastAPI endpoints) before
-> writing these instructions. Two real bugs were found and are documented below with fixes.
+## Features
 
----
+- Webcam, RTSP/IP-camera, and video-file input
+- YOLOv8 violence/fight inference
+- Configurable confidence threshold
+- N-consecutive-frame temporal consistency filter
+- Alert cooldown and annotated screenshots
+- SMTP Email alerts
+- Twilio WhatsApp alerts
+- Persistent local alert history
+- FastAPI control/status/history endpoints
+- Streamlit dashboard: Live Monitor, Alert History, Analytics, Settings
+- CLI/headless operation
+- Docker Compose support
+- Automated tests on Python 3.11
+- Optional custom-model training helper
 
-## 📁 Project Structure
+## Requirements
 
-```
-violence-detection/
-│
-├── config.py                   # Central config — reads from .env
-├── requirements.txt
-├── .env.example                 # Copy to .env and fill credentials
-├── Dockerfile
-├── docker-compose.yml
-├── docker-entrypoint.sh
-│
-├── core/
-│   ├── detector.py              # YOLOv8 inference + temporal consistency window
-│   ├── stream.py                 # VideoCapture wrapper + screenshot saving
-│   └── pipeline.py               # Main loop — stream → detect → alert
-│
-├── alerts/
-│   ├── email_alert.py            # HTML email via SMTP
-│   ├── whatsapp_alert.py         # WhatsApp via Twilio
-│   └── alert_manager.py          # Cooldown + dispatch orchestration
-│
-├── api/
-│   └── server.py                  # FastAPI REST backend
-│
-├── dashboard/
-│   └── app.py                     # Streamlit 4-page dashboard
-│
-├── utils/
-│   ├── logger.py                  # Rotating file + console logging
-│   └── train.py                   # YOLOv8 fine-tuning helper
-│
-├── models/                       # Place your .pt weights here (not tracked in git)
-├── screenshots/                  # Auto-saved alert screenshots (auto-created)
-└── logs/                         # Application + alert history logs (auto-created)
+- **Python 3.11** recommended
+- Internet access for the first model download
+- A webcam, RTSP stream, or local video file for inference
+- Email/Twilio credentials only if those notification channels are enabled
+
+A GPU is optional. Ultralytics/PyTorch will use available hardware automatically; CPU execution is also supported.
+
+## Default pretrained model
+
+The default checkpoint is the YOLOv8-nano fight/violence model published by:
+
+**Musawer1214/Fight-Violence-detection-yolov8**
+
+https://github.com/Musawer1214/Fight-Violence-detection-yolov8
+
+The upstream project documents two classes, `non_violence` and `violence`, with **class ID 1 representing violence**. This repository pins the download to upstream commit:
+
+```text
+20f0d05054cff7da2dc78dee3c2de1bd54106a13
 ```
 
-`models/`, `screenshots/`, and `logs/` don't need to be created manually — `config.py`
-creates `screenshots/` and `logs/` on import, and Docker creates all three at build time.
+The model is downloaded to `models/violence_yolov8n.pt` and is intentionally not committed to this repository.
 
----
+See [`THIRD_PARTY_MODELS.md`](THIRD_PARTY_MODELS.md) for attribution and limitations.
 
-## ⚡ Quick Start
+> The pretrained checkpoint was not trained by this repository's author. This project contributes the real-time video pipeline, temporal filtering, API, dashboard, alerts, persistence, runtime configuration, and deployment integration around the model.
 
-### 1. Clone & Install
+## Quick start
+
+### 1. Clone the repository
 
 ```bash
 git clone https://github.com/SahilBh01r1769/violence_detection.git
 cd violence_detection
+```
 
+### 2. Create a virtual environment
+
+```bash
 python -m venv venv
-source venv/bin/activate          # Windows: venv\Scripts\activate
+```
 
+Activate it:
+
+```bash
+# Windows PowerShell
+venv\Scripts\Activate.ps1
+
+# Windows Command Prompt
+venv\Scripts\activate.bat
+
+# Linux/macOS
+source venv/bin/activate
+```
+
+### 3. Install dependencies
+
+```bash
+python -m pip install --upgrade pip
 pip install -r requirements.txt
 ```
 
-### 2. Configure Environment
+### 4. Create configuration
 
 ```bash
+# Windows PowerShell
+Copy-Item .env.example .env
+
+# Linux/macOS
 cp .env.example .env
-# Edit .env with your credentials
 ```
 
-Key variables to set:
+The default `.env.example` is sufficient for local detection. Email and WhatsApp are optional; if you do not intend to configure them, set:
 
-| Variable                                   | Description                                   |
-| ------------------------------------------- | ---------------------------------------------- |
-| `MODEL_PATH`                                | Path to your fine-tuned `.pt` weights          |
-| `VIDEO_SOURCE`                              | `0` for webcam, or `rtsp://...` for IP camera  |
-| `SMTP_USER` / `SMTP_PASSWORD`               | Gmail address + App Password                   |
-| `ALERT_RECIPIENTS`                          | Comma-separated alert email addresses          |
-| `TWILIO_ACCOUNT_SID` / `TWILIO_AUTH_TOKEN`  | From Twilio console                            |
-| `TWILIO_WHATSAPP_TO`                        | Recipient WhatsApp: `whatsapp:+91XXXXXXXXXX`   |
+```text
+ENABLE_EMAIL_ALERTS=false
+ENABLE_WHATSAPP_ALERTS=false
+```
 
-Every channel degrades gracefully: if SMTP or Twilio credentials are missing, that
-channel is skipped and logged as a warning instead of crashing the pipeline (verified).
+### 5. Download the pretrained model
 
-### 3. Add Your Model
-
-Place your fine-tuned YOLOv8 weights at the path set in `MODEL_PATH`
-(default: `models/violence_yolov8.pt`).
-
-> If no model file is found at that path, the system **automatically falls back to
-> pretrained `yolov8n.pt`** (downloaded on first run). This is a stock COCO model — it
-> detects `person`, `car`, etc., **not violence** — so `is_violent`/alerting will never
-> meaningfully trigger until you train and place your own weights (see below).
-
----
-
-## 🚀 Running the System
-
-### Option A — Run components separately (development)
+Download it explicitly before starting the application:
 
 ```bash
-# Terminal 1: Start the FastAPI backend
-python -m uvicorn api.server:app --reload --port 8000
+python -m utils.download_model
+```
 
-# Terminal 2: Start the Streamlit dashboard
+Expected file:
+
+```text
+models/violence_yolov8n.pt
+```
+
+The application can also download it automatically if it is missing.
+
+### 6. Start the API
+
+From the repository root:
+
+```bash
+python -m uvicorn api.server:app --host 0.0.0.0 --port 8000
+```
+
+Check:
+
+```text
+http://localhost:8000/health
+http://localhost:8000/docs
+```
+
+### 7. Start the dashboard
+
+Open a second terminal in the same repository and activate the same virtual environment:
+
+```bash
 streamlit run dashboard/app.py --server.port 8501
+```
 
-# Terminal 3: (Optional) Run the pipeline headlessly from the CLI
+Open:
+
+```text
+http://localhost:8501
+```
+
+Go to **Settings**, choose the video source, then press **Start** in the sidebar.
+
+## Video sources
+
+### Webcam
+
+Use:
+
+```text
+0
+```
+
+or run directly:
+
+```bash
 python -m core.pipeline --source 0 --location "Camera-01" --display
 ```
 
-> ⚠️ **Run `core/pipeline.py` and `utils/train.py` as modules (`python -m core.pipeline`,
-> `python -m utils.train`), not as plain scripts.** Both files do `from config import ...`
-> / `from utils.logger import ...`, which relies on the repo root being on `sys.path`.
-> Python only adds the *script's own folder* (`core/` or `utils/`) to `sys.path` when you
-> run `python core/pipeline.py` directly — so that form fails immediately with
-> `ModuleNotFoundError: No module named 'config'`. This was confirmed by running both
-> forms against the actual code. Always invoke from the **repo root** using `-m`.
+### Video file
 
-Both `api/server.py` (via `uvicorn` import-string) and `dashboard/app.py` (via
-`streamlit run`) are unaffected by this — they were tested and start correctly as
-documented.
+Use a path such as:
 
-### Option B — Docker (production)
+```text
+C:\videos\sample.mp4
+```
+
+or:
 
 ```bash
-docker-compose up --build
+python -m core.pipeline --source "path/to/video.mp4" --location "Test-Video" --display
 ```
 
-- Dashboard: <http://localhost:8501>
-- API docs: <http://localhost:8000/docs>
+Local video files stop cleanly at end-of-file; they are not looped automatically.
 
-> **Known issue:** the `docker-compose.yml` healthcheck runs `curl -f http://localhost:8000/health`,
-> but the Dockerfile's runtime stage never installs `curl`. The container will run fine,
-> but `docker ps` will show the healthcheck itself failing/erroring rather than reporting
-> real health. Fix by adding `curl` to the runtime stage's `apt-get install` list, or by
-> switching the healthcheck to Python: `python -c "import urllib.request as u; u.urlopen('http://localhost:8000/health')"`.
+### RTSP/IP camera
 
-The compose file mounts `/dev/video0` for a local webcam — remove that `devices:` block if
-you're using an RTSP/IP camera instead, or it will fail to start on machines without a
-`/dev/video0` device.
-
----
-
-## 🎓 Training Your Own Model
-
-### 1. Prepare Dataset
-
-Export from Roboflow in **YOLOv8 format** or structure your own:
-
-```
-dataset/
-├── images/
-│   ├── train/
-│   ├── val/
-│   └── test/
-└── labels/
-    ├── train/
-    ├── val/
-    └── test/
-```
-
-Create `dataset.yaml`:
-
-```yaml
-path: /path/to/dataset
-train: images/train
-val:   images/val
-test:  images/test
-
-nc: 4
-names: ['Normal', 'Fighting', 'Weapon', 'Aggression']
-```
-
-Class names **must match** `VIOLENCE_CLASSES` in `config.py` (`Fighting`, `Weapon`,
-`Aggression` by default) — the detector only treats a box as violent if `class_name`
-is in that set, so a mismatched label set will silently never alert.
-
-### 2. Fine-tune
+Use the full RTSP URL:
 
 ```bash
-python -m utils.train \
-  --data    dataset/dataset.yaml \
-  --model   yolov8m.pt \
-  --epochs  50 \
-  --imgsz   640 \
-  --batch   16 \
-  --device  0 \
-  --output  models/violence_yolov8.pt \
-  --validate
+python -m core.pipeline --source "rtsp://user:password@camera/stream" --location "Entrance"
 ```
 
-Use `--device cpu` if you don't have a CUDA GPU.
+Credentials in RTSP URLs are redacted from application log messages.
 
-### 3. Recommended Datasets
+## Detection logic
 
-- [RWF-2000](https://github.com/mchengny/RWF2000-Video-Database-for-Violence-Detection) — 2,000 surveillance clips
-- [UCF-Crime](https://www.crcv.ucf.edu/projects/real-world/) — real CCTV footage
-- [Roboflow Universe](https://universe.roboflow.com) — search "violence", "fighting", "weapon"
+For each frame:
 
----
+1. YOLO returns bounding boxes, class IDs, labels, and confidence scores.
+2. A detection is violent when its class ID or normalized class name matches the configured violence classes.
+3. A frame is violent when at least one violent detection exists.
+4. The result enters a temporal window.
+5. An alert becomes eligible only when all `FRAME_CONSISTENCY` frames are violent.
+6. The alert cooldown is checked before a screenshot or notification is generated.
+7. Alert metadata is taken from the highest-confidence **violent** detection.
 
-## 🔔 Notification Setup
+If model inference itself fails, the pipeline stops and logs the error instead of incorrectly treating the frame as safe.
 
-### Email (Gmail)
+## Dashboard
 
-1. Enable 2FA on your Google account
-2. Generate an **App Password**: Google Account → Security → App Passwords
-3. Set `SMTP_USER` and `SMTP_PASSWORD` in `.env`
+### Live Monitor
+Shows the latest annotated frame, runtime state, frame count, alerts, FPS, confidence, consistency threshold, and cooldown.
 
-Sends a styled HTML email with an inline screenshot attachment (`email_alert.py`) —
-confirmed to build and send correctly given valid credentials, and to fail gracefully
-(logged, returns `False`, doesn't crash the pipeline) without them.
+### Alert History
+Loads the complete persisted alert history through API pagination, supports class/confidence filtering, screenshot viewing, and CSV export.
 
-### WhatsApp (Twilio Sandbox)
+### Analytics
+Shows total alerts, average confidence, class counts, confidence distribution, and alerts over time.
 
-1. Sign up at [twilio.com](https://www.twilio.com)
-2. Go to **Messaging → Try it out → Send a WhatsApp message**
-3. Follow sandbox join instructions (send "join &lt;code&gt;" to the sandbox number)
-4. Set credentials in `.env`
+### Settings
+Controls:
 
-For production WhatsApp, request a Twilio WhatsApp Business number. Note: Twilio can't
-attach your local screenshot file directly — `whatsapp_alert.py` only attaches media if
-you separately host the screenshot and pass a public `media_url`; otherwise it sends the
-text alert with the local filename mentioned for reference.
+- video source
+- camera/location label
+- confidence threshold
+- consecutive-frame requirement
+- alert cooldown
+- Email alerts on/off
+- WhatsApp alerts on/off
 
-### Alert Cooldown & Dedup
+The dashboard initializes from `.env`. Confidence, consistency, cooldown, and notification toggles can be updated while the pipeline is running. Video source and location apply on the next start.
 
-`AlertManager` enforces a single global cooldown (`ALERT_COOLDOWN_SECONDS`) across both
-channels — confirmed: a second `trigger()` call inside the cooldown window is suppressed
-and returns `False`, while dispatch itself happens in a background thread so the video
-loop is never blocked waiting on SMTP/Twilio.
+## API
 
----
+| Method | Endpoint | Purpose |
+|---|---|---|
+| `GET` | `/health` | API health check |
+| `GET` | `/status` | Pipeline status and current runtime settings |
+| `GET` | `/alerts` | Paginated persisted alert history |
+| `GET` | `/alerts/{id}/screenshot` | Retrieve an alert screenshot |
+| `POST` | `/pipeline/start` | Start video processing |
+| `POST` | `/pipeline/stop` | Stop video processing |
+| `POST` | `/pipeline/config` | Update runtime settings |
+| `GET` | `/stream/frame` | Latest annotated JPEG frame |
 
-## 🌐 API Reference
+The API waits for the previous processing thread to shut down before allowing a new pipeline to take control of the video source.
 
-All endpoints below were smoke-tested against a running instance of `api/server.py`.
+## Email alerts
 
-| Method | Endpoint                  | Description                          |
-| ------ | -------------------------- | -------------------------------------- |
-| GET    | `/health`                  | Health check                          |
-| GET    | `/status`                  | Pipeline stats (FPS, alerts, uptime)  |
-| GET    | `/alerts`                  | Alert history (paginated)             |
-| GET    | `/alerts/{id}/screenshot`  | Fetch screenshot image                |
-| POST   | `/pipeline/start`          | Start detection                       |
-| POST   | `/pipeline/stop`           | Stop detection                        |
-| POST   | `/pipeline/config`         | Update confidence / cooldown          |
-| GET    | `/stream/frame`            | Latest annotated JPEG frame           |
+Set these values in `.env`:
 
-Full interactive docs: <http://localhost:8000/docs>
+```text
+ENABLE_EMAIL_ALERTS=true
+SMTP_HOST=smtp.gmail.com
+SMTP_PORT=587
+SMTP_USER=your_email@gmail.com
+SMTP_PASSWORD=your_app_password
+ALERT_RECIPIENTS=recipient@example.com
+```
 
-`/stream/frame` returns a black "No stream available" placeholder JPEG when no pipeline
-is running yet, rather than erroring — confirmed via test client.
+For Gmail, use a Google App Password rather than your normal account password.
 
----
+## WhatsApp alerts
 
-## ⚙️ Configuration Reference
+Set:
 
-| Parameter                | Default | Description                             |
-| -------------------------- | --------- | ------------------------------------------ |
-| `CONFIDENCE_THRESHOLD`     | `0.55`  | Minimum detection confidence            |
-| `FRAME_CONSISTENCY`        | `5`     | Consecutive violent frames before alert |
-| `ALERT_COOLDOWN_SECONDS`   | `30`    | Min time between alerts                 |
-| `FPS_TARGET`                | `20`    | Target processing frame rate            |
-| `MAX_SCREENSHOTS`          | `500`   | Auto-purge threshold                    |
+```text
+ENABLE_WHATSAPP_ALERTS=true
+TWILIO_ACCOUNT_SID=
+TWILIO_AUTH_TOKEN=
+TWILIO_WHATSAPP_FROM=whatsapp:+14155238886
+TWILIO_WHATSAPP_TO=
+```
 
-**Detection mechanism, in detail:** each frame runs through YOLO inference; any box whose
-class name is in `VIOLENCE_CLASSES` marks that frame as violent. A `deque(maxlen=FRAME_CONSISTENCY)`
-sliding window records violent/not-violent per frame. An alert only fires once the window
-is **completely full of violent frames** (`len(window) == FRAME_CONSISTENCY and all(window)`),
-at which point the window is cleared so the same sustained event doesn't re-fire every
-subsequent frame. This was traced through the code and confirmed with synthetic frames.
+The current integration sends text alert details. A local screenshot path cannot be attached directly through Twilio; image media requires a public HTTPS URL.
 
----
+## Docker
 
-## 🔒 Privacy & Ethics
+Create `.env` first, then run:
 
-- This system is intended for **authorized surveillance only**
-- Obtain proper consent before monitoring any space
-- Implement role-based access control for the dashboard in production
-- Consider adding face blurring (planned future feature) for GDPR compliance
-- All alert data is stored locally — no third-party data sharing beyond configured channels
+```bash
+docker compose up --build
+```
 
----
+Services:
 
-## 🗺️ Future Enhancements
+```text
+FastAPI:   http://localhost:8000
+Streamlit: http://localhost:8501
+```
 
-- [ ] Face blurring / anonymisation
-- [ ] Edge deployment (Raspberry Pi, NVIDIA Jetson)
-- [ ] Mobile push notifications
-- [ ] Audio analysis (screaming, gunshot detection)
-- [ ] Multi-camera grid view
-- [ ] ONVIF / RTSP CCTV integration
-- [ ] Fix the known issues listed above
+The Compose setup persists:
+
+- `models/`
+- `screenshots/`
+- `logs/`
+
+and checks container health through `/health` using Python's standard library.
+
+For a Linux host webcam, uncomment the `/dev/video0` device mapping in `docker-compose.yml`. RTSP inputs do not require webcam passthrough.
+
+## Tests
+
+Install development dependencies:
+
+```bash
+pip install -r requirements-dev.txt
+```
+
+Run:
+
+```bash
+pytest -q
+```
+
+Tests cover:
+
+- violent-class selection
+- alert metadata selection
+- temporal-window reconfiguration
+- video-source normalization
+- API input validation
+- runtime settings updates
+- inference failure handling
+- RTSP credential redaction
+- stopped-runtime statistics
+
+GitHub Actions runs the test suite on Python 3.11 for pushes to `main` and pull requests.
+
+These tests validate application behavior; they do **not** claim or estimate the third-party model's accuracy.
+
+## Optional custom training
+
+Training is **not required** for the default project.
+
+If you later have a YOLO-format labelled dataset and want a custom model:
+
+```bash
+python -m utils.train --data dataset.yaml --model yolov8m.pt --device 0 --validate
+```
+
+For another pretrained/custom checkpoint, update `MODEL_PATH`, `VIOLENCE_CLASS_IDS`, and/or `VIOLENCE_CLASSES` in `.env` to match that model's classes.
+
+## Project structure
+
+```text
+violence_detection/
+├── alerts/
+├── api/
+├── core/
+├── dashboard/
+├── tests/
+├── utils/
+├── .github/workflows/tests.yml
+├── .dockerignore
+├── .env.example
+├── config.py
+├── Dockerfile
+├── docker-compose.yml
+├── requirements.txt
+└── README.md
+```
+
+Runtime model weights, screenshots, logs, local environments, and `.env` secrets are excluded from Git and Docker build context.
+
+## Limitations
+
+- The default checkpoint is a third-party violence/fight detector; this repository does not claim ownership of its training or accuracy.
+- Detection is per-frame YOLO inference combined with an N-frame consistency heuristic, not a learned temporal video model.
+- False positives and false negatives remain possible.
+- The API/dashboard do not include authentication and should not be exposed directly to an untrusted public network.
+- Surveillance usage must follow applicable privacy, consent, and retention requirements.
+
+## Intended use
+
+This project is intended for learning, prototyping, demonstrations, and authorized monitoring environments. Alert screenshots and history are stored locally. Configured Email/Twilio channels send alert information to those external services only when enabled.
