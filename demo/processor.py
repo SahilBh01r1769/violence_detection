@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import shutil
+import subprocess
 import tempfile
 import threading
 from dataclasses import dataclass
@@ -31,6 +33,45 @@ class VideoAnalysisSummary:
 
 def _safe_fps(value: float) -> float:
     return value if value and 0 < value < 240 else 30.0
+
+
+def _browser_compatible_video(path: Path | None) -> Path | None:
+    """Convert OpenCV's MP4 output to H.264 when ffmpeg is available."""
+    if path is None or not path.exists() or path.stat().st_size == 0:
+        return None
+    ffmpeg = shutil.which("ffmpeg")
+    if not ffmpeg:
+        return path
+
+    converted = path.with_name(f"{path.stem}_h264.mp4")
+    command = [
+        ffmpeg,
+        "-y",
+        "-loglevel",
+        "error",
+        "-i",
+        str(path),
+        "-c:v",
+        "libx264",
+        "-preset",
+        "veryfast",
+        "-pix_fmt",
+        "yuv420p",
+        "-movflags",
+        "+faststart",
+        str(converted),
+    ]
+    try:
+        subprocess.run(command, check=True, timeout=120)
+    except (subprocess.SubprocessError, OSError):
+        converted.unlink(missing_ok=True)
+        return path
+
+    if converted.exists() and converted.stat().st_size > 0:
+        path.unlink(missing_ok=True)
+        return converted
+    converted.unlink(missing_ok=True)
+    return path
 
 
 def analyse_video(
@@ -143,6 +184,8 @@ def analyse_video(
 
     if writer is None or not output_path.exists() or output_path.stat().st_size == 0:
         output_path = None
+    else:
+        output_path = _browser_compatible_video(output_path)
 
     duration_seconds = min(source_frame_index / input_fps, max_duration_seconds)
     actual_analysis_fps = (
