@@ -100,16 +100,27 @@ jobs:
           assert summaries['non_violent'].alerts_triggered == 0
           PY
 
-      - name: Verify Streamlit app starts
+      - name: Verify Streamlit app starts in cloud-style script context
+        working-directory: demo
         run: |
-          streamlit run demo/app.py --server.headless true --server.port 8501 > /tmp/streamlit.log 2>&1 &
+          streamlit run app.py --server.headless true --server.port 8501 > /tmp/streamlit.log 2>&1 &
           APP_PID=$!
           trap 'kill $APP_PID || true' EXIT
+          READY=0
           for attempt in $(seq 1 30); do
             if curl --fail --silent http://127.0.0.1:8501/_stcore/health; then
-              exit 0
+              READY=1
+              break
             fi
             sleep 1
           done
+          if [ "$READY" -ne 1 ]; then
+            cat /tmp/streamlit.log
+            exit 1
+          fi
+          sleep 3
+          if grep -Eq 'Traceback|ModuleNotFoundError|ImportError' /tmp/streamlit.log; then
+            cat /tmp/streamlit.log
+            exit 1
+          fi
           cat /tmp/streamlit.log
-          exit 1
