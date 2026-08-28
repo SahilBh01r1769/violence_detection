@@ -27,6 +27,31 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r demo/requirements.txt
 
+      - name: Verify headless OpenCV dependency graph
+        run: |
+          python - <<'PY'
+          from importlib.metadata import PackageNotFoundError, version
+          import cv2
+          from ultralytics import YOLO
+
+          print('opencv-python-headless', version('opencv-python-headless'))
+          print('ultralytics-opencv-headless', version('ultralytics-opencv-headless'))
+          print('cv2', cv2.__version__)
+          assert version('opencv-python-headless') == '4.12.0.88'
+
+          try:
+              desktop_opencv = version('opencv-python')
+          except PackageNotFoundError:
+              desktop_opencv = None
+
+          assert desktop_opencv is None, f'desktop opencv-python unexpectedly installed: {desktop_opencv}'
+          assert YOLO is not None
+          PY
+
+      - name: Verify native imports on Debian Trixie slim
+        run: |
+          docker run --rm python:3.11-slim-trixie sh -lc "pip install --no-cache-dir --extra-index-url https://download.pytorch.org/whl/cpu torch==2.13.0+cpu torchvision==0.28.0+cpu ultralytics-opencv-headless==8.4.125 opencv-python-headless==4.12.0.88 'numpy>=2,<2.3' >/tmp/pip.log && python -c 'import cv2; from ultralytics import YOLO; print(cv2.__version__); print(YOLO)'"
+
       - name: Compile demo files
         run: python -m py_compile demo/app.py demo/processor.py core/detector.py config.py
 
