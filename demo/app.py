@@ -30,7 +30,7 @@ st.set_page_config(
 VIOLENT_SAMPLE_URL = (
     "https://raw.githubusercontent.com/airtlab/"
     "A-Dataset-for-Automatic-Violence-Detection-in-Videos/master/"
-    "violence-detection-dataset/violent/cam1/1.mp4"
+    "violence-detection-dataset/violent/cam1/8.mp4"
 )
 NORMAL_SAMPLE_URL = (
     "https://raw.githubusercontent.com/airtlab/"
@@ -191,8 +191,8 @@ with st.sidebar:
         "Inference rate (frames/sec)",
         min_value=1,
         max_value=8,
-        value=4,
-        help="Lower values reduce CPU use on free hosting.",
+        value=6,
+        help="6 FPS is the tested demo default; lower values reduce CPU use but can change temporal alert behavior.",
     )
     max_duration = st.slider(
         "Maximum analyzed duration (seconds)",
