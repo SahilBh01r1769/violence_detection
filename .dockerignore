@@ -1,0 +1,15 @@
+.git
+.github
+.env
+venv/
+.venv/
+env/
+__pycache__/
+*.py[cod]
+models/*.pt
+models/*.onnx
+screenshots/
+logs/
+runs/
+.DS_Store
+Thumbs.db
