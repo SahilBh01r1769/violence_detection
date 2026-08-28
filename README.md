@@ -1,5 +1,7 @@
 # Real-Time Violence Detection & Alert System
 
+[![tests](https://github.com/SahilBh01r1769/violence_detection/actions/workflows/tests.yml/badge.svg)](https://github.com/SahilBh01r1769/violence_detection/actions/workflows/tests.yml)
+
 A video-monitoring application that combines a **pretrained YOLOv8 fight/violence detector** with OpenCV, temporal filtering, FastAPI, Streamlit, SMTP Email alerts, and Twilio WhatsApp alerts.
 
 **Training is not required.** The repository uses a public pretrained violence/fight checkpoint and keeps custom training as an optional utility only.
@@ -20,6 +22,24 @@ A video-monitoring application that combines a **pretrained YOLOv8 fight/violenc
 - Docker Compose support
 - Automated tests on Python 3.11
 - Optional custom-model training helper
+
+## Architecture
+
+```mermaid
+flowchart LR
+    A[Webcam / RTSP / Video] --> B[OpenCV VideoStream]
+    B --> C[Pretrained YOLOv8 Violence Detector]
+    C --> D[N-frame Temporal Filter]
+    D --> E[Alert Cooldown]
+    E --> F[Screenshot + Alert History]
+    E --> G[Email / Twilio WhatsApp]
+    C --> H[Annotated Frames]
+    H --> I[FastAPI]
+    F --> I
+    I --> J[Streamlit Dashboard]
+```
+
+The repository owns the application pipeline and integrations around the third-party checkpoint; it does not claim ownership of the checkpoint's training.
 
 ## Requirements
 
@@ -309,7 +329,7 @@ pip install -r requirements-dev.txt
 Run:
 
 ```bash
-pytest -q
+python -m pytest -q
 ```
 
 Tests cover:
