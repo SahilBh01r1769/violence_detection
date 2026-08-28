@@ -16,16 +16,17 @@ from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel, Field
 
 from alerts.alert_manager import ALERT_LOG_FILE, AlertRecord
+from config import ALERT_COOLDOWN_SECONDS, CONFIDENCE_THRESHOLD, ENABLE_EMAIL_ALERTS, ENABLE_WHATSAPP_ALERTS, FRAME_CONSISTENCY, VIDEO_SOURCE
 from core.pipeline import DetectionPipeline
 
 logger = logging.getLogger(__name__)
-app = FastAPI(title="Violence Detection API", version="1.1.0")
+app = FastAPI(title="Violence Detection API", version="1.2.0")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
-
 _pipeline: Optional[DetectionPipeline] = None
 _pipeline_thread: Optional[threading.Thread] = None
 _latest_frame: Optional[np.ndarray] = None
 _frame_lock = threading.Lock()
+_pipeline_lock = threading.Lock()
 
 
 def _history_records():
@@ -39,6 +40,12 @@ def _history_records():
     except Exception as exc:
         logger.warning("Could not read persisted alert history: %s", exc)
         return []
+
+
+def _clear_latest_frame():
+    global _latest_frame
+    with _frame_lock:
+        _latest_frame = None
 
 
 def _frame_callback(annotated_frame, _result):
@@ -64,7 +71,7 @@ def get_alerts(page: int = Query(1, ge=1), per_page: int = Query(20, ge=1, le=10
     history = _history_records()
     total = len(history)
     start = (page - 1) * per_page
-    items = history[start : start + per_page]
+    items = history[start:start + per_page]
     return {"alerts": [vars(alert) for alert in items], "total": total, "page": page, "per_page": per_page, "pages": (total + per_page - 1) // per_page}
 
 
@@ -80,37 +87,47 @@ def get_screenshot(alert_id: int):
 
 
 class PipelineStartRequest(BaseModel):
-    source: str = "0"
+    source: str = str(VIDEO_SOURCE)
     location: str = "Camera-01"
-    confidence: float = Field(0.55, ge=0.0, le=1.0)
-    frame_consistency: int = Field(5, ge=1, le=120)
-    cooldown_seconds: int = Field(30, ge=0, le=86400)
-    enable_email: bool = True
-    enable_whatsapp: bool = True
+    confidence: float = Field(CONFIDENCE_THRESHOLD, ge=0.0, le=1.0)
+    frame_consistency: int = Field(FRAME_CONSISTENCY, ge=1, le=120)
+    cooldown_seconds: int = Field(ALERT_COOLDOWN_SECONDS, ge=0, le=86400)
+    enable_email: bool = ENABLE_EMAIL_ALERTS
+    enable_whatsapp: bool = ENABLE_WHATSAPP_ALERTS
 
 
 @app.post("/pipeline/start")
 def start_pipeline(req: PipelineStartRequest):
     global _pipeline, _pipeline_thread
-    if _pipeline and _pipeline._running:
-        return JSONResponse({"message": "Pipeline already running"}, status_code=200)
-    source = int(req.source) if req.source.isdigit() else req.source
-    try:
-        _pipeline = DetectionPipeline(on_frame=_frame_callback, location=req.location, show_window=False, confidence=req.confidence, frame_consistency=req.frame_consistency, cooldown_seconds=req.cooldown_seconds, enable_email=req.enable_email, enable_whatsapp=req.enable_whatsapp)
-    except Exception as exc:
-        logger.exception("Could not initialise pipeline")
-        raise HTTPException(500, f"Could not initialise pipeline: {exc}") from exc
-    _pipeline_thread = threading.Thread(target=_pipeline.run, kwargs={"source": source}, daemon=True, name="violence-detection-pipeline")
-    _pipeline_thread.start()
-    return {"message": "Pipeline started", "source": req.source}
+    with _pipeline_lock:
+        if _pipeline and _pipeline._running:
+            return JSONResponse({"message": "Pipeline already running"}, status_code=200)
+        if _pipeline_thread and _pipeline_thread.is_alive():
+            _pipeline_thread.join(timeout=5)
+            if _pipeline_thread.is_alive():
+                raise HTTPException(409, "Previous pipeline is still shutting down; try again shortly")
+        _clear_latest_frame()
+        source = int(req.source) if req.source.isdigit() else req.source
+        try:
+            _pipeline = DetectionPipeline(on_frame=_frame_callback, location=req.location, show_window=False, confidence=req.confidence, frame_consistency=req.frame_consistency, cooldown_seconds=req.cooldown_seconds, enable_email=req.enable_email, enable_whatsapp=req.enable_whatsapp)
+        except Exception as exc:
+            logger.exception("Could not initialise pipeline")
+            raise HTTPException(500, f"Could not initialise pipeline: {exc}") from exc
+        _pipeline_thread = threading.Thread(target=_pipeline.run, kwargs={"source": source}, daemon=True, name="violence-detection-pipeline")
+        _pipeline_thread.start()
+        return {"message": "Pipeline started", "source": req.source}
 
 
 @app.post("/pipeline/stop")
 def stop_pipeline():
     if _pipeline is None or not _pipeline._running:
+        _clear_latest_frame()
         return {"message": "Pipeline is not running"}
     _pipeline.stop()
-    return {"message": "Stop signal sent"}
+    if _pipeline_thread and _pipeline_thread.is_alive():
+        _pipeline_thread.join(timeout=5)
+    _clear_latest_frame()
+    return {"message": "Pipeline stopped" if not (_pipeline_thread and _pipeline_thread.is_alive()) else "Stop signal sent"}
 
 
 class PipelineConfigRequest(BaseModel):

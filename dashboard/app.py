@@ -12,6 +12,8 @@ import plotly.express as px
 import requests
 import streamlit as st
 
+from config import ALERT_COOLDOWN_SECONDS, CONFIDENCE_THRESHOLD, ENABLE_EMAIL_ALERTS, ENABLE_WHATSAPP_ALERTS, FRAME_CONSISTENCY, VIDEO_SOURCE
+
 API_BASE = os.getenv("API_BASE", "http://localhost:8000")
 st.set_page_config(page_title="Violence Detection System", page_icon="🛡️", layout="wide")
 
@@ -29,9 +31,7 @@ def api_post(path: str, payload: dict | None = None):
     try:
         response = requests.post(f"{API_BASE}{path}", json=payload or {}, timeout=30)
         data = response.json() if response.content else {}
-        if response.ok:
-            return data
-        return {"error": data.get("detail") or data.get("message") or response.text}
+        return data if response.ok else {"error": data.get("detail") or data.get("message") or response.text}
     except Exception as exc:
         return {"error": str(exc)}
 
@@ -46,8 +46,15 @@ def live_frame_b64() -> str | None:
 
 
 def load_alert_history() -> pd.DataFrame:
-    data = api_get("/alerts?per_page=100", {"alerts": []}) or {"alerts": []}
-    alerts = data.get("alerts", [])
+    alerts = []
+    page = 1
+    while True:
+        data = api_get(f"/alerts?page={page}&per_page=100", {"alerts": [], "pages": 0}) or {"alerts": [], "pages": 0}
+        alerts.extend(data.get("alerts", []))
+        pages = int(data.get("pages", 0) or 0)
+        if page >= pages:
+            break
+        page += 1
     if not alerts:
         return pd.DataFrame()
     frame = pd.DataFrame(alerts)
@@ -60,15 +67,7 @@ def setting(name: str, default):
 
 
 def start_payload() -> dict:
-    return {
-        "source": str(setting("video_source", "0")),
-        "location": setting("location", "Camera-01"),
-        "confidence": float(setting("confidence", 0.55)),
-        "frame_consistency": int(setting("frame_consistency", 5)),
-        "cooldown_seconds": int(setting("cooldown", 30)),
-        "enable_email": bool(setting("enable_email", True)),
-        "enable_whatsapp": bool(setting("enable_whatsapp", True)),
-    }
+    return {"source": str(setting("video_source", VIDEO_SOURCE)), "location": setting("location", "Camera-01"), "confidence": float(setting("confidence", CONFIDENCE_THRESHOLD)), "frame_consistency": int(setting("frame_consistency", FRAME_CONSISTENCY)), "cooldown_seconds": int(setting("cooldown", ALERT_COOLDOWN_SECONDS)), "enable_email": bool(setting("enable_email", ENABLE_EMAIL_ALERTS)), "enable_whatsapp": bool(setting("enable_whatsapp", ENABLE_WHATSAPP_ALERTS))}
 
 
 with st.sidebar:
@@ -83,11 +82,10 @@ with st.sidebar:
     with c2:
         if st.button("Stop", use_container_width=True):
             result = api_post("/pipeline/stop")
-            st.error(result["error"]) if result.get("error") else st.info(result.get("message", "Stop signal sent"))
+            st.error(result["error"]) if result.get("error") else st.info(result.get("message", "Pipeline stopped"))
     status = api_get("/status", {}) or {}
     st.caption("ACTIVE" if status.get("running") else "OFFLINE")
     st.caption(f"API: {API_BASE}")
-
 
 if page == "Live Monitor":
     st.header("Live Monitor")
@@ -102,11 +100,7 @@ if page == "Live Monitor":
         st.markdown(f'<img src="data:image/jpeg;base64,{frame_b64}" style="width:100%;max-width:960px">', unsafe_allow_html=True)
     else:
         st.info("No frame available. Start the API and pipeline first.")
-    st.write(
-        f"Cooldown remaining: **{status.get('cooldown_remaining', 0):.0f}s** · "
-        f"Confidence: **{status.get('confidence', setting('confidence', 0.55)):.2f}** · "
-        f"Frame consistency: **{status.get('frame_consistency', setting('frame_consistency', 5))}**"
-    )
+    st.write(f"Cooldown remaining: **{status.get('cooldown_remaining', 0):.0f}s** · Confidence: **{status.get('confidence', setting('confidence', CONFIDENCE_THRESHOLD)):.2f}** · Frame consistency: **{status.get('frame_consistency', setting('frame_consistency', FRAME_CONSISTENCY))}**")
     if st.checkbox("Auto-refresh every second", value=True):
         time.sleep(1)
         st.rerun()
@@ -155,13 +149,13 @@ elif page == "Settings":
     st.header("Settings")
     status = api_get("/status", {}) or {}
     with st.form("settings"):
-        confidence = st.slider("Confidence threshold", 0.05, 1.0, float(setting("confidence", 0.55)), 0.05)
-        frame_consistency = st.number_input("Consecutive violent frames required", 1, 120, int(setting("frame_consistency", 5)))
-        cooldown = st.number_input("Alert cooldown (seconds)", 0, 86400, int(setting("cooldown", 30)))
+        confidence = st.slider("Confidence threshold", 0.05, 1.0, float(setting("confidence", CONFIDENCE_THRESHOLD)), 0.05)
+        frame_consistency = st.number_input("Consecutive violent frames required", 1, 120, int(setting("frame_consistency", FRAME_CONSISTENCY)))
+        cooldown = st.number_input("Alert cooldown (seconds)", 0, 86400, int(setting("cooldown", ALERT_COOLDOWN_SECONDS)))
         location = st.text_input("Camera/location label", setting("location", "Camera-01"))
-        video_source = st.text_input("Video source", str(setting("video_source", "0")))
-        enable_email = st.checkbox("Enable Email alerts", value=bool(setting("enable_email", True)))
-        enable_whatsapp = st.checkbox("Enable WhatsApp alerts", value=bool(setting("enable_whatsapp", True)))
+        video_source = st.text_input("Video source", str(setting("video_source", VIDEO_SOURCE)))
+        enable_email = st.checkbox("Enable Email alerts", value=bool(setting("enable_email", ENABLE_EMAIL_ALERTS)))
+        enable_whatsapp = st.checkbox("Enable WhatsApp alerts", value=bool(setting("enable_whatsapp", ENABLE_WHATSAPP_ALERTS)))
         submitted = st.form_submit_button("Save & Apply")
     if submitted:
         st.session_state.update(confidence=confidence, frame_consistency=int(frame_consistency), cooldown=int(cooldown), location=location, video_source=video_source, enable_email=enable_email, enable_whatsapp=enable_whatsapp)

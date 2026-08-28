@@ -13,7 +13,7 @@ import cv2
 from alerts.alert_manager import AlertManager
 from config import ALERT_COOLDOWN_SECONDS, CONFIDENCE_THRESHOLD, ENABLE_EMAIL_ALERTS, ENABLE_WHATSAPP_ALERTS, FRAME_CONSISTENCY, MODEL_PATH, VIDEO_SOURCE, VIOLENCE_CLASSES, VIOLENCE_CLASS_IDS
 from core.detector import ViolenceDetector
-from core.stream import VideoStream
+from core.stream import VideoStream, safe_source_label
 
 logger = logging.getLogger(__name__)
 
@@ -37,17 +37,19 @@ class DetectionPipeline:
         self.frames_processed = 0
         self.alerts_fired = 0
         self.start_time = 0.0
+        self.end_time = 0.0
 
     def run(self, source=None) -> None:
         source = normalise_source(source)
         self.frames_processed = 0
         self.alerts_fired = 0
         self.start_time = time.time()
+        self.end_time = 0.0
         self._running = True
         if threading.current_thread() is threading.main_thread():
             signal.signal(signal.SIGINT, self._handle_stop)
             signal.signal(signal.SIGTERM, self._handle_stop)
-        logger.info("Starting detection pipeline on source: %s", source)
+        logger.info("Starting detection pipeline on source: %s", safe_source_label(source))
         try:
             with VideoStream(source=source) as stream:
                 for frame in stream.frames():
@@ -67,9 +69,10 @@ class DetectionPipeline:
                         if cv2.waitKey(1) & 0xFF == ord("q"):
                             break
         except Exception as exc:
-            logger.exception("Pipeline error: %s", exc)
+            logger.exception("Pipeline stopped because of an error: %s", exc)
         finally:
             self._running = False
+            self.end_time = time.time()
             if self.show_window:
                 cv2.destroyAllWindows()
             logger.info("Pipeline stopped. Frames: %d | Alerts: %d | Uptime: %.0fs", self.frames_processed, self.alerts_fired, self.uptime)
@@ -83,7 +86,10 @@ class DetectionPipeline:
 
     @property
     def uptime(self) -> float:
-        return time.time() - self.start_time if self.start_time else 0.0
+        if not self.start_time:
+            return 0.0
+        endpoint = time.time() if self._running else (self.end_time or time.time())
+        return max(0.0, endpoint - self.start_time)
 
     @property
     def fps(self) -> float:
@@ -92,7 +98,7 @@ class DetectionPipeline:
 
 if __name__ == "__main__":
     import argparse
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s  %(levelname)-8s  %(name)s — %(message)s")
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)-8s %(name)s — %(message)s")
     parser = argparse.ArgumentParser(description="Violence Detection Pipeline")
     parser.add_argument("--source", default=None, help="0 for webcam, RTSP URL, or video-file path")
     parser.add_argument("--location", default="Camera-01", help="Camera label for alerts")
