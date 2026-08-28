@@ -39,7 +39,7 @@ Deploy with:
 - Main file path: `demo/app.py`
 - Python: 3.11
 
-`demo/requirements.txt` is intentionally smaller than the production requirements. Root `packages.txt` provides the Linux packages needed by OpenCV and browser-compatible FFmpeg output.
+`demo/requirements.txt` is intentionally smaller than the production requirements. The hosted demo uses `opencv-python-headless` and the `imageio-ffmpeg` wheel, so it does not require a `packages.txt` APT layer on Streamlit Community Cloud.
 
 ## Architecture
 
