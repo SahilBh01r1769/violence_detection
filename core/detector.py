@@ -43,9 +43,7 @@ class DetectionResult:
     @property
     def primary_class(self) -> str:
         candidates = self.violent_detections or self.detections
-        if not candidates:
-            return "Normal"
-        return max(candidates, key=lambda d: d.confidence).class_name
+        return max(candidates, key=lambda d: d.confidence).class_name if candidates else "Normal"
 
     @property
     def max_confidence(self) -> float:
@@ -54,20 +52,10 @@ class DetectionResult:
 
 
 class ViolenceDetector:
-    def __init__(
-        self,
-        model_path: str | Path,
-        confidence: float = 0.55,
-        frame_consistency: int = 5,
-        violence_classes: Optional[List[str]] = None,
-        violence_class_ids: Optional[set[int]] = None,
-    ):
+    def __init__(self, model_path: str | Path, confidence: float = 0.55, frame_consistency: int = 5, violence_classes: Optional[List[str]] = None, violence_class_ids: Optional[set[int]] = None):
         self.confidence = confidence
         self.frame_consistency = max(1, int(frame_consistency))
-        self.violence_classes = {
-            self._normalise_name(name)
-            for name in (violence_classes or ["violence", "fight", "fighting", "violence/fight"])
-        }
+        self.violence_classes = {self._normalise_name(name) for name in (violence_classes or ["violence", "fight", "fighting", "violence/fight"])}
         self.violence_class_ids = set(VIOLENCE_CLASS_IDS if violence_class_ids is None else violence_class_ids)
         self._model = None
         self._model_path = Path(model_path)
@@ -95,7 +83,6 @@ class ViolenceDetector:
             from ultralytics import YOLO
         except ImportError as exc:
             raise RuntimeError("ultralytics is not installed; run pip install -r requirements.txt") from exc
-
         path = self._model_path
         if not path.exists():
             if not AUTO_DOWNLOAD_MODEL:
@@ -103,11 +90,7 @@ class ViolenceDetector:
             try:
                 path = ensure_model(path=path, url=MODEL_DOWNLOAD_URL)
             except Exception as exc:
-                raise RuntimeError(
-                    f"Could not download violence model to {path}. "
-                    "Run python -m utils.download_model when internet access is available."
-                ) from exc
-
+                raise RuntimeError(f"Could not download violence model to {path}. Run python -m utils.download_model when internet access is available.") from exc
         self._model = YOLO(str(path))
         logger.info("Loaded violence model from %s with classes %s", path, self._model.names)
 
@@ -118,7 +101,6 @@ class ViolenceDetector:
     def process_frame(self, frame: np.ndarray) -> DetectionResult:
         self._frame_id += 1
         result = DetectionResult(frame=frame.copy(), frame_id=self._frame_id)
-
         try:
             predictions = self._model.predict(source=frame, conf=self.confidence, verbose=False)
             for pred in predictions:
@@ -130,18 +112,16 @@ class ViolenceDetector:
                     confidence = float(box.conf[0])
                     x1, y1, x2, y2 = map(int, box.xyxy[0])
                     is_violent = self._is_violent_class(class_id, class_name)
-                    result.detections.append(
-                        Detection(class_id, class_name, confidence, (x1, y1, x2, y2), is_violent)
-                    )
+                    result.detections.append(Detection(class_id, class_name, confidence, (x1, y1, x2, y2), is_violent))
                     result.is_violent = result.is_violent or is_violent
         except Exception as exc:
-            logger.error("Inference error on frame %d: %s", self._frame_id, exc)
+            logger.exception("Inference failed on frame %d", self._frame_id)
+            raise RuntimeError(f"Model inference failed on frame {self._frame_id}") from exc
 
         self._window.append(result.is_violent)
         if len(self._window) == self.frame_consistency and all(self._window):
             result.alert_triggered = True
             self._window.clear()
-
         return result
 
     @staticmethod
@@ -154,21 +134,19 @@ class ViolenceDetector:
             banner_color, label = (0, 100, 255), "SUSPICIOUS ACTIVITY"
         else:
             banner_color, label = (30, 160, 30), "MONITORING"
-
         cv2.rectangle(frame, (0, 0), (width, 36), banner_color, -1)
         cv2.putText(frame, label, (10, 25), cv2.FONT_HERSHEY_DUPLEX, 0.75, (255, 255, 255), 2)
         timestamp = time.strftime("%Y-%m-%d  %H:%M:%S", time.localtime(result.timestamp))
         cv2.putText(frame, timestamp, (max(10, width - 230), 25), cv2.FONT_HERSHEY_PLAIN, 1.1, (220, 220, 220), 1)
-
         for det in result.detections:
             x1, y1, x2, y2 = det.bbox
             colour = (0, 0, 255) if det.is_violent else (0, 200, 0)
             cv2.rectangle(frame, (x1, y1), (x2, y2), colour, 2)
             box_label = f"{det.class_name}  {det.confidence:.0%}"
-            (text_width, text_height), _ = cv2.getTextSize(box_label, cv2.FONT_HERSHEY_SIMPLEX, 0.55, 1)
-            label_top = max(0, y1 - text_height - 8)
-            cv2.rectangle(frame, (x1, label_top), (x1 + text_width + 6, y1), colour, -1)
-            cv2.putText(frame, box_label, (x1 + 3, max(text_height + 2, y1 - 4)), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (255, 255, 255), 1)
+            (tw, th), _ = cv2.getTextSize(box_label, cv2.FONT_HERSHEY_SIMPLEX, 0.55, 1)
+            top = max(0, y1 - th - 8)
+            cv2.rectangle(frame, (x1, top), (x1 + tw + 6, y1), colour, -1)
+            cv2.putText(frame, box_label, (x1 + 3, max(th + 2, y1 - 4)), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (255, 255, 255), 1)
         return frame
 
     @property
