@@ -36,12 +36,18 @@ def _safe_fps(value: float) -> float:
 
 
 def _browser_compatible_video(path: Path | None) -> Path | None:
-    """Convert OpenCV's MP4 output to H.264 when ffmpeg is available."""
+    """Convert OpenCV's MP4 output to H.264 using system or bundled ffmpeg."""
     if path is None or not path.exists() or path.stat().st_size == 0:
         return None
+
     ffmpeg = shutil.which("ffmpeg")
     if not ffmpeg:
-        return path
+        try:
+            import imageio_ffmpeg
+
+            ffmpeg = imageio_ffmpeg.get_ffmpeg_exe()
+        except Exception:
+            return path
 
     converted = path.with_name(f"{path.stem}_h264.mp4")
     command = [
