@@ -30,14 +30,13 @@ jobs:
       - name: Compile demo files
         run: python -m py_compile demo/app.py demo/processor.py core/detector.py config.py
 
-      - name: Probe violent sample inference cadence
+      - name: Validate built-in demo samples end to end
         env:
           ENABLE_EMAIL_ALERTS: 'false'
           ENABLE_WHATSAPP_ALERTS: 'false'
         run: |
           python - <<'PY'
           from pathlib import Path
-          import cv2
           import requests
 
           from config import (
@@ -48,16 +47,17 @@ jobs:
               VIOLENCE_CLASS_IDS,
           )
           from core.detector import ViolenceDetector
+          from demo.processor import analyse_video
 
-          url = (
+          base = (
               'https://raw.githubusercontent.com/airtlab/'
               'A-Dataset-for-Automatic-Violence-Detection-in-Videos/master/'
-              'violence-detection-dataset/violent/cam1/8.mp4'
+              'violence-detection-dataset'
           )
-          path = Path('/tmp/violent_8.mp4')
-          response = requests.get(url, timeout=60)
-          response.raise_for_status()
-          path.write_bytes(response.content)
+          samples = {
+              'violent': f'{base}/violent/cam1/8.mp4',
+              'non_violent': f'{base}/non-violent/cam1/1.mp4',
+          }
 
           detector = ViolenceDetector(
               model_path=MODEL_PATH,
@@ -67,30 +67,37 @@ jobs:
               violence_class_ids=VIOLENCE_CLASS_IDS,
           )
 
-          rows = []
-          for target_fps in (4.0, 6.0, 8.0):
-              cap = cv2.VideoCapture(str(path))
-              fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
-              stride = max(1, int(round(fps / target_fps)))
-              detector._window.clear()
-              detector._frame_id = 0
-              idx = sampled = violent = alerts = 0
-              while True:
-                  ok, frame = cap.read()
-                  if not ok:
-                      break
-                  if idx % stride == 0:
-                      result = detector.process_frame(frame)
-                      sampled += 1
-                      violent += int(result.is_violent)
-                      alerts += int(result.alert_triggered)
-                  idx += 1
-              cap.release()
-              row = (target_fps, sampled, violent, alerts)
-              rows.append(row)
-              print('cadence', row)
+          summaries = {}
+          for name, url in samples.items():
+              path = Path(f'/tmp/{name}.mp4')
+              response = requests.get(url, timeout=60)
+              response.raise_for_status()
+              path.write_bytes(response.content)
+              summary = analyse_video(
+                  path,
+                  detector,
+                  target_analysis_fps=6.0,
+                  max_duration_seconds=15.0,
+              )
+              assert summary.frames_analyzed > 0
+              assert summary.timeline
+              assert summary.output_video is None or summary.output_video.exists()
+              summaries[name] = summary
+              print(
+                  name,
+                  {
+                      'frames': summary.frames_analyzed,
+                      'violent_samples': summary.violent_samples,
+                      'alerts': summary.alerts_triggered,
+                      'peak_confidence': summary.peak_confidence,
+                      'output_video': str(summary.output_video) if summary.output_video else None,
+                  },
+              )
 
-          assert max(row[3] for row in rows) > 0, 'Sample did not trigger temporal alert at tested inference rates'
+          assert summaries['violent'].violent_samples > 0
+          assert summaries['violent'].alerts_triggered > 0
+          assert summaries['non_violent'].violent_samples == 0
+          assert summaries['non_violent'].alerts_triggered == 0
           PY
 
       - name: Verify Streamlit app starts
