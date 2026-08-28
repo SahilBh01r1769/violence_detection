@@ -1,24 +1,8 @@
-"""
-api/server.py — FastAPI Backend
-
-Exposes REST endpoints consumed by the Streamlit dashboard and
-any external integrations.
-
-Endpoints
----------
-GET  /health                     System health check
-GET  /status                     Pipeline runtime stats
-GET  /alerts                     Paginated alert history
-GET  /alerts/{id}/screenshot     Serve a screenshot image
-POST /pipeline/start             Start detection
-POST /pipeline/stop              Stop detection
-POST /pipeline/config            Update confidence / cooldown at runtime
-GET  /stream/frame               Latest annotated JPEG frame (MJPEG-style)
-"""
+"""FastAPI backend for pipeline control, status, history and live frames."""
 
 from __future__ import annotations
 
-import io
+import json
 import logging
 import threading
 import time
@@ -28,38 +12,40 @@ from typing import Optional
 import numpy as np
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse, Response, StreamingResponse
-from pydantic import BaseModel
+from fastapi.responses import JSONResponse, Response
+from pydantic import BaseModel, Field
 
-from config import CONFIDENCE_THRESHOLD, ALERT_COOLDOWN_SECONDS, LOG_DIR
+from alerts.alert_manager import ALERT_LOG_FILE, AlertRecord
 from core.pipeline import DetectionPipeline
 
 logger = logging.getLogger(__name__)
-app    = FastAPI(title="Violence Detection API", version="1.0.0")
+app = FastAPI(title="Violence Detection API", version="1.1.0")
+app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-# ── Global Pipeline State ────────────────────────────────────────────────────
-
-_pipeline:        Optional[DetectionPipeline] = None
-_pipeline_thread: Optional[threading.Thread]  = None
-_latest_frame:    Optional[np.ndarray]        = None
-_frame_lock       = threading.Lock()
+_pipeline: Optional[DetectionPipeline] = None
+_pipeline_thread: Optional[threading.Thread] = None
+_latest_frame: Optional[np.ndarray] = None
+_frame_lock = threading.Lock()
 
 
-def _frame_callback(annotated_frame, result):
-    """Store the latest annotated frame for /stream/frame endpoint."""
+def _history_records():
+    if _pipeline is not None:
+        return _pipeline.alert_manager.history
+    if not ALERT_LOG_FILE.exists():
+        return []
+    try:
+        data = json.loads(ALERT_LOG_FILE.read_text(encoding="utf-8"))
+        return list(reversed([AlertRecord(**record) for record in data]))
+    except Exception as exc:
+        logger.warning("Could not read persisted alert history: %s", exc)
+        return []
+
+
+def _frame_callback(annotated_frame, _result):
     global _latest_frame
     with _frame_lock:
-        _latest_frame = annotated_frame
+        _latest_frame = annotated_frame.copy()
 
-
-# ── Health / Status ──────────────────────────────────────────────────────────
 
 @app.get("/health")
 def health():
@@ -69,87 +55,53 @@ def health():
 @app.get("/status")
 def status():
     if _pipeline is None:
-        return {"running": False}
-    return {
-        "running":          _pipeline._running,
-        "frames_processed": _pipeline.frames_processed,
-        "alerts_fired":     _pipeline.alerts_fired,
-        "uptime_seconds":   round(_pipeline.uptime, 1),
-        "fps":              round(_pipeline.fps, 2),
-        "alert_history_count": len(_pipeline.alert_manager.history),
-        "cooldown_remaining":  round(_pipeline.alert_manager.seconds_until_next_alert, 1),
-    }
+        return {"running": False, "alert_history_count": len(_history_records())}
+    return {"running": _pipeline._running, "frames_processed": _pipeline.frames_processed, "alerts_fired": _pipeline.alerts_fired, "uptime_seconds": round(_pipeline.uptime, 1), "fps": round(_pipeline.fps, 2), "alert_history_count": len(_pipeline.alert_manager.history), "cooldown_remaining": round(_pipeline.alert_manager.seconds_until_next_alert, 1), "cooldown_seconds": _pipeline.alert_manager.cooldown, "confidence": _pipeline.detector.confidence, "frame_consistency": _pipeline.detector.frame_consistency, "email_enabled": _pipeline.alert_manager.enable_email, "whatsapp_enabled": _pipeline.alert_manager.enable_whatsapp}
 
-
-# ── Alerts ───────────────────────────────────────────────────────────────────
 
 @app.get("/alerts")
-def get_alerts(
-    page:     int = Query(1, ge=1),
-    per_page: int = Query(20, ge=1, le=100),
-):
-    if _pipeline is None:
-        return {"alerts": [], "total": 0}
-
-    history = _pipeline.alert_manager.history
-    total   = len(history)
-    start   = (page - 1) * per_page
-    end     = start + per_page
-    page_items = history[start:end]
-
-    return {
-        "alerts":   [vars(a) for a in page_items],
-        "total":    total,
-        "page":     page,
-        "per_page": per_page,
-        "pages":    (total + per_page - 1) // per_page,
-    }
+def get_alerts(page: int = Query(1, ge=1), per_page: int = Query(20, ge=1, le=100)):
+    history = _history_records()
+    total = len(history)
+    start = (page - 1) * per_page
+    items = history[start : start + per_page]
+    return {"alerts": [vars(alert) for alert in items], "total": total, "page": page, "per_page": per_page, "pages": (total + per_page - 1) // per_page}
 
 
 @app.get("/alerts/{alert_id}/screenshot")
 def get_screenshot(alert_id: int):
-    if _pipeline is None:
-        raise HTTPException(404, "Pipeline not running")
-
-    for record in _pipeline.alert_manager.history:
+    for record in _history_records():
         if record.id == alert_id and record.screenshot_path:
-            p = Path(record.screenshot_path)
-            if p.exists():
-                return Response(content=p.read_bytes(), media_type="image/jpeg")
+            path = Path(record.screenshot_path)
+            if path.exists():
+                return Response(content=path.read_bytes(), media_type="image/jpeg")
             raise HTTPException(404, "Screenshot file not found on disk")
-
     raise HTTPException(404, f"Alert {alert_id} not found")
 
 
-# ── Pipeline Control ─────────────────────────────────────────────────────────
-
 class PipelineStartRequest(BaseModel):
-    source:   str = "0"
+    source: str = "0"
     location: str = "Camera-01"
+    confidence: float = Field(0.55, ge=0.0, le=1.0)
+    frame_consistency: int = Field(5, ge=1, le=120)
+    cooldown_seconds: int = Field(30, ge=0, le=86400)
+    enable_email: bool = True
+    enable_whatsapp: bool = True
 
 
 @app.post("/pipeline/start")
 def start_pipeline(req: PipelineStartRequest):
     global _pipeline, _pipeline_thread
-
     if _pipeline and _pipeline._running:
         return JSONResponse({"message": "Pipeline already running"}, status_code=200)
-
     source = int(req.source) if req.source.isdigit() else req.source
-
-    _pipeline = DetectionPipeline(
-        on_frame=_frame_callback,
-        location=req.location,
-        show_window=False,
-    )
-
-    _pipeline_thread = threading.Thread(
-        target=_pipeline.run,
-        kwargs={"source": source},
-        daemon=True,
-    )
+    try:
+        _pipeline = DetectionPipeline(on_frame=_frame_callback, location=req.location, show_window=False, confidence=req.confidence, frame_consistency=req.frame_consistency, cooldown_seconds=req.cooldown_seconds, enable_email=req.enable_email, enable_whatsapp=req.enable_whatsapp)
+    except Exception as exc:
+        logger.exception("Could not initialise pipeline")
+        raise HTTPException(500, f"Could not initialise pipeline: {exc}") from exc
+    _pipeline_thread = threading.Thread(target=_pipeline.run, kwargs={"source": source}, daemon=True, name="violence-detection-pipeline")
     _pipeline_thread.start()
-    logger.info("Pipeline started on source: %s", source)
     return {"message": "Pipeline started", "source": req.source}
 
 
@@ -162,48 +114,43 @@ def stop_pipeline():
 
 
 class PipelineConfigRequest(BaseModel):
-    confidence:       Optional[float] = None
-    cooldown_seconds: Optional[int]   = None
+    confidence: Optional[float] = Field(None, ge=0.0, le=1.0)
+    frame_consistency: Optional[int] = Field(None, ge=1, le=120)
+    cooldown_seconds: Optional[int] = Field(None, ge=0, le=86400)
+    enable_email: Optional[bool] = None
+    enable_whatsapp: Optional[bool] = None
 
 
 @app.post("/pipeline/config")
 def update_config(req: PipelineConfigRequest):
     if _pipeline is None:
-        raise HTTPException(400, "Pipeline not running")
-
+        raise HTTPException(400, "Pipeline has not been started")
     if req.confidence is not None:
         _pipeline.detector.confidence = req.confidence
-
+    if req.frame_consistency is not None:
+        _pipeline.detector.set_frame_consistency(req.frame_consistency)
     if req.cooldown_seconds is not None:
         _pipeline.alert_manager.cooldown = req.cooldown_seconds
+    if req.enable_email is not None:
+        _pipeline.alert_manager.enable_email = req.enable_email
+    if req.enable_whatsapp is not None:
+        _pipeline.alert_manager.enable_whatsapp = req.enable_whatsapp
+    return {"message": "Config updated", "applied": req.model_dump(exclude_none=True)}
 
-    return {"message": "Config updated", "applied": req.dict(exclude_none=True)}
-
-
-# ── Live Frame ───────────────────────────────────────────────────────────────
 
 @app.get("/stream/frame")
 def latest_frame():
-    """Return the latest annotated JPEG frame."""
-    with _frame_lock:
-        frame = _latest_frame
-
-    if frame is None:
-        # Return a black placeholder
-        import cv2
-        placeholder = np.zeros((360, 640, 3), dtype=np.uint8)
-        cv2.putText(
-            placeholder, "No stream available",
-            (140, 180), cv2.FONT_HERSHEY_SIMPLEX, 1, (80, 80, 80), 2,
-        )
-        frame = placeholder
-
     import cv2
-    _, buf = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 80])
-    return Response(content=buf.tobytes(), media_type="image/jpeg")
+    with _frame_lock:
+        frame = None if _latest_frame is None else _latest_frame.copy()
+    if frame is None:
+        frame = np.zeros((360, 640, 3), dtype=np.uint8)
+        cv2.putText(frame, "No stream available", (140, 180), cv2.FONT_HERSHEY_SIMPLEX, 1, (80, 80, 80), 2)
+    ok, buffer = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 80])
+    if not ok:
+        raise HTTPException(500, "Could not encode frame")
+    return Response(content=buffer.tobytes(), media_type="image/jpeg")
 
-
-# ── Run ──────────────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
     import uvicorn
