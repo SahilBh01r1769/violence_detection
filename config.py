@@ -5,7 +5,6 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 load_dotenv()
-
 BASE_DIR = Path(__file__).resolve().parent
 
 
@@ -30,21 +29,19 @@ def _int_csv(name: str, default: str) -> set[int]:
 
 def _bool(name: str, default: bool) -> bool:
     raw = os.getenv(name)
-    if raw is None:
-        return default
-    return raw.strip().lower() in {"1", "true", "yes", "on"}
+    return default if raw is None else raw.strip().lower() in {"1", "true", "yes", "on"}
 
 
+UPSTREAM_MODEL_COMMIT = "20f0d05054cff7da2dc78dee3c2de1bd54106a13"
 MODEL_PATH = _path_from_env("MODEL_PATH", "models/violence_yolov8n.pt")
 MODEL_DOWNLOAD_URL = os.getenv(
     "MODEL_DOWNLOAD_URL",
-    "https://raw.githubusercontent.com/Musawer1214/Fight-Violence-detection-yolov8/main/Yolo_nano_weights.pt",
+    f"https://raw.githubusercontent.com/Musawer1214/Fight-Violence-detection-yolov8/{UPSTREAM_MODEL_COMMIT}/Yolo_nano_weights.pt",
 )
 AUTO_DOWNLOAD_MODEL = _bool("AUTO_DOWNLOAD_MODEL", True)
 MODEL_SOURCE_URL = "https://github.com/Musawer1214/Fight-Violence-detection-yolov8"
 SCREENSHOT_DIR = _path_from_env("SCREENSHOT_DIR", "screenshots")
 LOG_DIR = _path_from_env("LOG_DIR", "logs")
-
 SCREENSHOT_DIR.mkdir(parents=True, exist_ok=True)
 LOG_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -57,8 +54,6 @@ if isinstance(VIDEO_SOURCE, str) and VIDEO_SOURCE.isdigit():
 
 VIOLENCE_CLASS_IDS = _int_csv("VIOLENCE_CLASS_IDS", "1")
 VIOLENCE_CLASSES = _csv("VIOLENCE_CLASSES", "violence,fight,fighting,violence/fight")
-SAFE_CLASS = os.getenv("SAFE_CLASS", "NoViolence")
-
 ALERT_COOLDOWN_SECONDS = int(os.getenv("ALERT_COOLDOWN_SECONDS", "30"))
 MAX_SCREENSHOTS = int(os.getenv("MAX_SCREENSHOTS", "500"))
 ENABLE_EMAIL_ALERTS = _bool("ENABLE_EMAIL_ALERTS", True)
@@ -69,12 +64,10 @@ SMTP_PORT = int(os.getenv("SMTP_PORT", "587"))
 SMTP_USER = os.getenv("SMTP_USER", "")
 SMTP_PASSWORD = os.getenv("SMTP_PASSWORD", "")
 ALERT_RECIPIENTS = _csv("ALERT_RECIPIENTS", "")
-
 TWILIO_ACCOUNT_SID = os.getenv("TWILIO_ACCOUNT_SID", "")
 TWILIO_AUTH_TOKEN = os.getenv("TWILIO_AUTH_TOKEN", "")
 TWILIO_WHATSAPP_FROM = os.getenv("TWILIO_WHATSAPP_FROM", "whatsapp:+14155238886")
 TWILIO_WHATSAPP_TO = os.getenv("TWILIO_WHATSAPP_TO", "")
-
 DASHBOARD_PORT = int(os.getenv("DASHBOARD_PORT", "8501"))
 API_PORT = int(os.getenv("API_PORT", "8000"))
 API_BASE = os.getenv("API_BASE", f"http://localhost:{API_PORT}")
