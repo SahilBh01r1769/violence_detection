@@ -30,14 +30,13 @@ jobs:
       - name: Compile demo files
         run: python -m py_compile demo/app.py demo/processor.py core/detector.py config.py
 
-      - name: Run one real inference
+      - name: Run real demo video analysis
         env:
           ENABLE_EMAIL_ALERTS: 'false'
           ENABLE_WHATSAPP_ALERTS: 'false'
         run: |
           python - <<'PY'
           from pathlib import Path
-          import cv2
           import requests
 
           from config import (
@@ -48,22 +47,17 @@ jobs:
               VIOLENCE_CLASS_IDS,
           )
           from core.detector import ViolenceDetector
+          from demo.processor import analyse_video
 
-          sample_url = (
+          base = (
               'https://raw.githubusercontent.com/airtlab/'
               'A-Dataset-for-Automatic-Violence-Detection-in-Videos/master/'
-              'violence-detection-dataset/violent/cam1/1.mp4'
+              'violence-detection-dataset'
           )
-          sample_path = Path('/tmp/violent_sample.mp4')
-          response = requests.get(sample_url, timeout=60)
-          response.raise_for_status()
-          sample_path.write_bytes(response.content)
-
-          capture = cv2.VideoCapture(str(sample_path))
-          ok, frame = capture.read()
-          capture.release()
-          if not ok:
-              raise RuntimeError('Could not read smoke-test sample frame')
+          samples = {
+              'violent': f'{base}/violent/cam1/1.mp4',
+              'non_violent': f'{base}/non-violent/cam1/1.mp4',
+          }
 
           detector = ViolenceDetector(
               model_path=MODEL_PATH,
@@ -72,9 +66,43 @@ jobs:
               violence_classes=VIOLENCE_CLASSES,
               violence_class_ids=VIOLENCE_CLASS_IDS,
           )
-          result = detector.process_frame(frame)
-          print(
-              'smoke inference ok:',
-              {'detections': len(result.detections), 'class': result.primary_class, 'confidence': result.max_confidence},
-          )
+
+          for name, url in samples.items():
+              path = Path(f'/tmp/{name}.mp4')
+              response = requests.get(url, timeout=60)
+              response.raise_for_status()
+              path.write_bytes(response.content)
+              summary = analyse_video(
+                  path,
+                  detector,
+                  target_analysis_fps=4.0,
+                  max_duration_seconds=15.0,
+              )
+              assert summary.frames_analyzed > 0
+              assert summary.timeline
+              assert summary.output_video is None or summary.output_video.exists()
+              print(
+                  name,
+                  {
+                      'frames': summary.frames_analyzed,
+                      'violent_samples': summary.violent_samples,
+                      'alerts': summary.alerts_triggered,
+                      'peak_confidence': summary.peak_confidence,
+                      'output_video': str(summary.output_video) if summary.output_video else None,
+                  },
+              )
           PY
+
+      - name: Verify Streamlit app starts
+        run: |
+          streamlit run demo/app.py --server.headless true --server.port 8501 > /tmp/streamlit.log 2>&1 &
+          APP_PID=$!
+          trap 'kill $APP_PID || true' EXIT
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent http://127.0.0.1:8501/_stcore/health; then
+              exit 0
+            fi
+            sleep 1
+          done
+          cat /tmp/streamlit.log
+          exit 1
