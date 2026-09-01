@@ -15,7 +15,71 @@ import streamlit as st
 from config import ALERT_COOLDOWN_SECONDS, CONFIDENCE_THRESHOLD, ENABLE_EMAIL_ALERTS, ENABLE_WHATSAPP_ALERTS, FRAME_CONSISTENCY, VIDEO_SOURCE
 
 API_BASE = os.getenv("API_BASE", "http://localhost:8000")
-st.set_page_config(page_title="Violence Detection System", page_icon="🛡️", layout="wide")
+st.set_page_config(page_title="Violence Detection System", layout="wide")
+
+st.markdown(
+    """
+<style>
+:root {
+  --page: #f1eee8;
+  --panel: #e7e1d7;
+  --panel-2: #ddd6cb;
+  --ink: #29251f;
+  --muted: #6b645b;
+  --line: #bdb4a8;
+  --accent: #82503a;
+  --slate: #50616d;
+}
+html, body, [data-testid="stAppViewContainer"] {
+  background: var(--page);
+  color: var(--ink);
+  font-family: Arial, Helvetica, sans-serif;
+}
+[data-testid="stSidebar"] {
+  background: #e4ded4;
+  border-right: 1px solid var(--line);
+}
+h1, h2, h3 { color: var(--ink) !important; letter-spacing: -0.02em; }
+[data-testid="stMetric"] {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  padding: 12px;
+  box-shadow: none;
+}
+.stButton > button,
+.stDownloadButton > button,
+[data-baseweb="select"] > div,
+[data-testid="stTextInputRootElement"],
+[data-testid="stNumberInputContainer"] {
+  border-radius: 3px !important;
+  box-shadow: none !important;
+}
+.stButton > button { transition: none !important; }
+.stButton > button:hover { transform: none !important; }
+[data-testid="stAlert"] { border-radius: 3px; }
+.skeleton {
+  height: 84px;
+  border: 1px solid var(--line);
+  background: var(--panel-2);
+  border-radius: 3px;
+  margin: 8px 0 14px;
+  animation: skeletonPulse 1.05s ease-in-out infinite;
+}
+.skeleton.tall { height: 220px; }
+@keyframes skeletonPulse { 0%,100% { opacity: .45; } 50% { opacity: .78; } }
+</style>
+""",
+    unsafe_allow_html=True,
+)
+
+PLOT_COLORS = ["#50616d", "#82503a", "#5f6d59", "#756552"]
+
+
+def loading_placeholder(tall: bool = False):
+    slot = st.empty()
+    slot.markdown(f'<div class="skeleton{" tall" if tall else ""}"></div>', unsafe_allow_html=True)
+    return slot
 
 
 def api_get(path: str, default=None):
@@ -67,11 +131,19 @@ def setting(name: str, default):
 
 
 def start_payload() -> dict:
-    return {"source": str(setting("video_source", VIDEO_SOURCE)), "location": setting("location", "Camera-01"), "confidence": float(setting("confidence", CONFIDENCE_THRESHOLD)), "frame_consistency": int(setting("frame_consistency", FRAME_CONSISTENCY)), "cooldown_seconds": int(setting("cooldown", ALERT_COOLDOWN_SECONDS)), "enable_email": bool(setting("enable_email", ENABLE_EMAIL_ALERTS)), "enable_whatsapp": bool(setting("enable_whatsapp", ENABLE_WHATSAPP_ALERTS))}
+    return {
+        "source": str(setting("video_source", VIDEO_SOURCE)),
+        "location": setting("location", "Camera-01"),
+        "confidence": float(setting("confidence", CONFIDENCE_THRESHOLD)),
+        "frame_consistency": int(setting("frame_consistency", FRAME_CONSISTENCY)),
+        "cooldown_seconds": int(setting("cooldown", ALERT_COOLDOWN_SECONDS)),
+        "enable_email": bool(setting("enable_email", ENABLE_EMAIL_ALERTS)),
+        "enable_whatsapp": bool(setting("enable_whatsapp", ENABLE_WHATSAPP_ALERTS)),
+    }
 
 
 with st.sidebar:
-    st.title("🛡️ Violence Detection")
+    st.title("Violence Detection")
     page = st.radio("Navigation", ["Live Monitor", "Alert History", "Analytics", "Settings"])
     st.divider()
     c1, c2 = st.columns(2)
@@ -95,19 +167,32 @@ if page == "Live Monitor":
     m2.metric("Frames", f"{status.get('frames_processed', 0):,}")
     m3.metric("Alerts", status.get("alerts_fired", 0))
     m4.metric("FPS", f"{status.get('fps', 0):.1f}")
+
+    frame_loading = loading_placeholder(tall=True)
     frame_b64 = live_frame_b64()
+    frame_loading.empty()
     if frame_b64:
-        st.markdown(f'<img src="data:image/jpeg;base64,{frame_b64}" style="width:100%;max-width:960px">', unsafe_allow_html=True)
+        st.markdown(
+            f'<img src="data:image/jpeg;base64,{frame_b64}" style="width:100%;max-width:960px;border:1px solid #bdb4a8">',
+            unsafe_allow_html=True,
+        )
     else:
         st.info("No frame available. Start the API and pipeline first.")
-    st.write(f"Cooldown remaining: **{status.get('cooldown_remaining', 0):.0f}s** · Confidence: **{status.get('confidence', setting('confidence', CONFIDENCE_THRESHOLD)):.2f}** · Frame consistency: **{status.get('frame_consistency', setting('frame_consistency', FRAME_CONSISTENCY))}**")
+
+    st.write(
+        f"Cooldown remaining: **{status.get('cooldown_remaining', 0):.0f}s** | "
+        f"Confidence: **{status.get('confidence', setting('confidence', CONFIDENCE_THRESHOLD)):.2f}** | "
+        f"Frame consistency: **{status.get('frame_consistency', setting('frame_consistency', FRAME_CONSISTENCY))}**"
+    )
     if st.checkbox("Auto-refresh every second", value=True):
         time.sleep(1)
         st.rerun()
 
 elif page == "Alert History":
     st.header("Alert History")
+    loading = loading_placeholder(tall=True)
     df = load_alert_history()
+    loading.empty()
     if df.empty:
         st.info("No alert records available yet.")
     else:
@@ -124,26 +209,32 @@ elif page == "Alert History":
         for _, row in filtered.head(20).iterrows():
             path_value = row.get("screenshot_path")
             if path_value and Path(str(path_value)).exists():
-                st.image(str(path_value), caption=f"Alert #{int(row['id'])} — {row['detected_class']}")
+                st.image(str(path_value), caption=f"Alert #{int(row['id'])}: {row['detected_class']}")
 
 elif page == "Analytics":
     st.header("Analytics")
+    loading = loading_placeholder(tall=True)
     df = load_alert_history()
+    loading.empty()
     if df.empty:
         st.info("Analytics will appear after alerts are recorded.")
     else:
-        a, b, c = st.columns(3)
+        a, b = st.columns(2)
         a.metric("Total alerts", len(df))
         b.metric("Average confidence", f"{df['confidence'].mean():.1%}")
-        c.metric("Most common class", df["detected_class"].mode().iloc[0])
+        st.metric("Most common class", df["detected_class"].mode().iloc[0])
+
         class_counts = df["detected_class"].value_counts().rename_axis("class").reset_index(name="count")
-        st.plotly_chart(px.bar(class_counts, x="class", y="count", title="Alerts by class"), use_container_width=True)
-        st.plotly_chart(px.histogram(df, x="confidence", nbins=20, title="Confidence distribution"), use_container_width=True)
+        fig_bar = px.bar(class_counts, x="class", y="count", title="Alerts by class", color_discrete_sequence=[PLOT_COLORS[1]])
+        fig_hist = px.histogram(df, x="confidence", nbins=20, title="Confidence distribution", color_discrete_sequence=[PLOT_COLORS[0]])
+        st.plotly_chart(fig_bar, use_container_width=True)
+        st.plotly_chart(fig_hist, use_container_width=True)
         timeline = df.dropna(subset=["timestamp"]).copy()
         if not timeline.empty:
             timeline["hour"] = timeline["timestamp"].dt.floor("h")
             counts = timeline.groupby("hour").size().reset_index(name="count")
-            st.plotly_chart(px.line(counts, x="hour", y="count", markers=True, title="Alerts over time"), use_container_width=True)
+            fig_line = px.line(counts, x="hour", y="count", markers=True, title="Alerts over time", color_discrete_sequence=[PLOT_COLORS[0]])
+            st.plotly_chart(fig_line, use_container_width=True)
 
 elif page == "Settings":
     st.header("Settings")
@@ -156,11 +247,28 @@ elif page == "Settings":
         video_source = st.text_input("Video source", str(setting("video_source", VIDEO_SOURCE)))
         enable_email = st.checkbox("Enable Email alerts", value=bool(setting("enable_email", ENABLE_EMAIL_ALERTS)))
         enable_whatsapp = st.checkbox("Enable WhatsApp alerts", value=bool(setting("enable_whatsapp", ENABLE_WHATSAPP_ALERTS)))
-        submitted = st.form_submit_button("Save & Apply")
+        submitted = st.form_submit_button("Save and Apply")
     if submitted:
-        st.session_state.update(confidence=confidence, frame_consistency=int(frame_consistency), cooldown=int(cooldown), location=location, video_source=video_source, enable_email=enable_email, enable_whatsapp=enable_whatsapp)
+        st.session_state.update(
+            confidence=confidence,
+            frame_consistency=int(frame_consistency),
+            cooldown=int(cooldown),
+            location=location,
+            video_source=video_source,
+            enable_email=enable_email,
+            enable_whatsapp=enable_whatsapp,
+        )
         if status.get("running"):
-            result = api_post("/pipeline/config", {"confidence": confidence, "frame_consistency": int(frame_consistency), "cooldown_seconds": int(cooldown), "enable_email": enable_email, "enable_whatsapp": enable_whatsapp})
+            result = api_post(
+                "/pipeline/config",
+                {
+                    "confidence": confidence,
+                    "frame_consistency": int(frame_consistency),
+                    "cooldown_seconds": int(cooldown),
+                    "enable_email": enable_email,
+                    "enable_whatsapp": enable_whatsapp,
+                },
+            )
             st.error(result["error"]) if result.get("error") else st.success("Settings applied to the running pipeline.")
         else:
             st.success("Settings saved. They will be used the next time the pipeline starts.")
