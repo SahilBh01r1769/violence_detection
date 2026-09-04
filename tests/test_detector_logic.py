@@ -33,6 +33,7 @@ def detector_for(decisions, frame_consistency):
     detector._model = ScriptedModel(decisions)
     detector._model_path = None
     detector._frame_id = 0
+    detector._event_active = False
 
     from collections import deque
 
@@ -77,10 +78,12 @@ def test_changing_frame_consistency_resets_window(monkeypatch):
     monkeypatch.setattr(ViolenceDetector, "_load_model", lambda self: None)
     detector = ViolenceDetector("unused.pt", frame_consistency=5)
     detector._window.extend([True, True])
+    detector._event_active = True
     detector.set_frame_consistency(3)
     assert detector.frame_consistency == 3
     assert len(detector._window) == 0
     assert detector._window.maxlen == 3
+    assert not detector._event_active
 
 
 @pytest.mark.parametrize(
@@ -112,12 +115,25 @@ def test_negative_frame_requires_a_new_positive_run():
     ]
 
 
-def test_trigger_clears_window_and_allows_repeat_during_same_positive_run():
+def test_continuous_positive_run_produces_one_event():
     decisions = [True] * 6
     assert run_decisions(decisions, 3) == [
         False,
         False,
         True,
+        False,
+        False,
+        False,
+    ]
+
+
+def test_negative_frame_ends_event_and_allows_a_new_trigger():
+    decisions = [True, True, True, False, True, True, True]
+    assert run_decisions(decisions, 3) == [
+        False,
+        False,
+        True,
+        False,
         False,
         False,
         True,

@@ -61,6 +61,7 @@ class ViolenceDetector:
         self._model_path = Path(model_path)
         self._frame_id = 0
         self._window: deque[bool] = deque(maxlen=self.frame_consistency)
+        self._event_active = False
         self._load_model()
 
     @staticmethod
@@ -97,6 +98,7 @@ class ViolenceDetector:
     def set_frame_consistency(self, value: int) -> None:
         self.frame_consistency = max(1, int(value))
         self._window = deque(maxlen=self.frame_consistency)
+        self._event_active = False
 
     def process_frame(self, frame: np.ndarray) -> DetectionResult:
         self._frame_id += 1
@@ -119,9 +121,15 @@ class ViolenceDetector:
             raise RuntimeError(f"Model inference failed on frame {self._frame_id}") from exc
 
         self._window.append(result.is_violent)
-        if len(self._window) == self.frame_consistency and all(self._window):
+        if not result.is_violent:
+            self._event_active = False
+        elif (
+            not self._event_active
+            and len(self._window) == self.frame_consistency
+            and all(self._window)
+        ):
             result.alert_triggered = True
-            self._window.clear()
+            self._event_active = True
         return result
 
     @staticmethod

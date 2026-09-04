@@ -76,12 +76,18 @@ def trigger_indices(
         raise ValueError("threshold must be at least 1")
 
     positive_run = 0
+    event_active = False
     triggers: list[int] = []
     for index, observation in enumerate(observations):
-        positive_run = positive_run + 1 if observation.is_violent else 0
-        if positive_run == threshold:
-            triggers.append(index)
+        if not observation.is_violent:
             positive_run = 0
+            event_active = False
+            continue
+
+        positive_run += 1
+        if not event_active and positive_run >= threshold:
+            triggers.append(index)
+            event_active = True
     return triggers
 
 
@@ -160,4 +166,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

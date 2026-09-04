@@ -36,12 +36,21 @@ def test_threshold_comparison_exposes_false_trigger_delay_tradeoff():
 
 
 def test_multiple_triggers_in_one_event_are_counted_as_duplicates():
-    trace = observations([True] * 6, [True] * 6)
+    trace = observations(
+        [True, True, True, False, True, True, True],
+        [True] * 7,
+    )
     result = evaluate_threshold(trace, 3)
 
     assert result.total_triggers == 2
     assert result.detected_events == 1
     assert result.duplicate_triggers == 1
+
+
+def test_continuous_positive_run_is_one_raw_trigger():
+    trace = observations([True] * 6, [True] * 6)
+
+    assert trigger_indices(trace, 3) == [2]
 
 
 def test_event_shorter_than_threshold_is_reported_as_missed():
