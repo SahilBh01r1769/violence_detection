@@ -145,9 +145,9 @@ The default checkpoint comes from [Musawer1214/Fight-Violence-detection-yolov8](
 
 The upstream checkpoint exposes `non_violence` and `violence`, with class ID 1 treated as violent by default. See [THIRD_PARTY_MODELS.md](THIRD_PARTY_MODELS.md).
 
-## Hardware note
+## Repeatable filter comparison
 
-Development targets CPU-only machines as well as GPU-equipped systems. Video inference may run below the video's native frame rate on low-power hardware. Repeatable filter comparisons will therefore operate on saved per-frame traces after a single inference pass, avoiding repeated model execution.
+Each sample video is inferred once into a saved frame-level trace. The 1, 3, 5, and 10-frame filters then replay the same detector decisions, so differences in false triggers and alert delay come from the temporal rule rather than from separate inference runs.
 
 ## License and responsible use
 
