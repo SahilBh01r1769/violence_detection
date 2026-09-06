@@ -54,6 +54,18 @@ def _frame_callback(annotated_frame, _result):
         _latest_frame = annotated_frame.copy()
 
 
+def _latest_delivery(history):
+    if not history:
+        return None
+    alert = history[0]
+    return {
+        "id": alert.id,
+        "status": alert.status,
+        "completed_at": alert.completed_at,
+        "error": alert.error,
+    }
+
+
 @app.get("/health")
 def health():
     return {"status": "ok", "timestamp": time.time()}
@@ -61,9 +73,32 @@ def health():
 
 @app.get("/status")
 def status():
+    history = _history_records()
     if _pipeline is None:
-        return {"running": False, "alert_history_count": len(_history_records())}
-    return {"running": _pipeline._running, "frames_processed": _pipeline.frames_processed, "alerts_fired": _pipeline.alerts_fired, "uptime_seconds": round(_pipeline.uptime, 1), "fps": round(_pipeline.fps, 2), "alert_history_count": len(_pipeline.alert_manager.history), "cooldown_remaining": round(_pipeline.alert_manager.seconds_until_next_alert, 1), "cooldown_seconds": _pipeline.alert_manager.cooldown, "confidence": _pipeline.detector.confidence, "frame_consistency": _pipeline.detector.frame_consistency, "email_enabled": _pipeline.alert_manager.enable_email, "whatsapp_enabled": _pipeline.alert_manager.enable_whatsapp}
+        return {
+            "running": False,
+            "source_state": "idle",
+            "last_error": None,
+            "latest_alert_delivery": _latest_delivery(history),
+            "alert_history_count": len(history),
+        }
+    return {
+        "running": _pipeline._running,
+        "source_state": _pipeline.source_state,
+        "last_error": _pipeline.last_error.as_dict() if _pipeline.last_error else None,
+        "latest_alert_delivery": _latest_delivery(history),
+        "frames_processed": _pipeline.frames_processed,
+        "alerts_fired": _pipeline.alerts_fired,
+        "uptime_seconds": round(_pipeline.uptime, 1),
+        "fps": round(_pipeline.fps, 2),
+        "alert_history_count": len(history),
+        "cooldown_remaining": round(_pipeline.alert_manager.seconds_until_next_alert, 1),
+        "cooldown_seconds": _pipeline.alert_manager.cooldown,
+        "confidence": _pipeline.detector.confidence,
+        "frame_consistency": _pipeline.detector.frame_consistency,
+        "email_enabled": _pipeline.alert_manager.enable_email,
+        "whatsapp_enabled": _pipeline.alert_manager.enable_whatsapp,
+    }
 
 
 @app.get("/alerts")

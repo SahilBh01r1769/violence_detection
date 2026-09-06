@@ -6,6 +6,8 @@ import logging
 import signal
 import threading
 import time
+from dataclasses import asdict, dataclass
+from datetime import datetime, timezone
 from typing import Callable, Optional
 
 import cv2
@@ -16,6 +18,16 @@ from core.detector import ViolenceDetector
 from core.stream import VideoStream, safe_source_label
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class RuntimeFailure:
+    stage: str
+    message: str
+    timestamp: str
+
+    def as_dict(self) -> dict[str, str]:
+        return asdict(self)
 
 
 def normalise_source(source):
@@ -38,6 +50,8 @@ class DetectionPipeline:
         self.alerts_fired = 0
         self.start_time = 0.0
         self.end_time = 0.0
+        self.source_state = "idle"
+        self.last_error: Optional[RuntimeFailure] = None
 
     def run(self, source=None) -> None:
         source = normalise_source(source)
@@ -45,6 +59,8 @@ class DetectionPipeline:
         self.alerts_fired = 0
         self.start_time = time.time()
         self.end_time = 0.0
+        self.source_state = "connecting"
+        self.last_error = None
         self._running = True
         if threading.current_thread() is threading.main_thread():
             signal.signal(signal.SIGINT, self._handle_stop)
@@ -52,23 +68,43 @@ class DetectionPipeline:
         logger.info("Starting detection pipeline on source: %s", safe_source_label(source))
         try:
             with VideoStream(source=source) as stream:
+                self.source_state = "connected"
                 for frame in stream.frames():
                     if not self._running:
                         break
-                    result = self.detector.process_frame(frame)
+                    try:
+                        result = self.detector.process_frame(frame)
+                    except Exception as exc:
+                        self._record_error("inference", exc)
+                        raise
                     self.frames_processed += 1
                     annotated = ViolenceDetector.annotate_frame(result)
                     if result.alert_triggered and self.alert_manager.can_trigger:
-                        screenshot_path = stream.save_screenshot(annotated, prefix="alert")
-                        if self.alert_manager.trigger(result.primary_class, result.max_confidence, annotated, screenshot_path):
-                            self.alerts_fired += 1
+                        try:
+                            screenshot_path = stream.save_screenshot(annotated, prefix="alert")
+                            if self.alert_manager.trigger(result.primary_class, result.max_confidence, annotated, screenshot_path):
+                                self.alerts_fired += 1
+                        except Exception as exc:
+                            self._record_error("alert", exc)
+                            raise
                     if self.on_frame:
                         self.on_frame(annotated, result)
                     if self.show_window:
                         cv2.imshow("Violence Detection System", annotated)
                         if cv2.waitKey(1) & 0xFF == ord("q"):
                             break
+                if stream.end_reason == "disconnected":
+                    self.source_state = "disconnected"
+                    self._record_error("source", "video source disconnected")
+                elif not self._running:
+                    self.source_state = "stopped"
+                else:
+                    self.source_state = stream.end_reason or "ended"
         except Exception as exc:
+            if self.last_error is None:
+                stage = "source" if self.source_state == "connecting" else "pipeline"
+                self._record_error(stage, exc)
+            self.source_state = "error"
             logger.exception("Pipeline stopped because of an error: %s", exc)
         finally:
             self._running = False
@@ -83,6 +119,13 @@ class DetectionPipeline:
     def _handle_stop(self, *_args) -> None:
         logger.info("Shutdown signal received")
         self.stop()
+
+    def _record_error(self, stage: str, error: Exception | str) -> None:
+        self.last_error = RuntimeFailure(
+            stage=stage,
+            message=str(error),
+            timestamp=datetime.now(timezone.utc).isoformat(),
+        )
 
     @property
     def uptime(self) -> float:

@@ -1,3 +1,5 @@
+from types import SimpleNamespace
+
 from fastapi.testclient import TestClient
 
 import api.server as server
@@ -11,7 +13,14 @@ class FakeDetector:
 
 
 class FakeAlertManager:
-    history = []
+    history = [
+        SimpleNamespace(
+            id=7,
+            status="failed",
+            completed_at="2026-09-06 10:00:00",
+            error="smtp unavailable",
+        )
+    ]
     cooldown = 30
     seconds_until_next_alert = 0
     enable_email = True
@@ -25,6 +34,14 @@ class FakePipeline:
         self.alerts_fired = 0
         self.uptime = 0
         self.fps = 0
+        self.source_state = "disconnected"
+        self.last_error = SimpleNamespace(
+            as_dict=lambda: {
+                "stage": "source",
+                "message": "video source disconnected",
+                "timestamp": "2026-09-06T10:00:00+00:00",
+            }
+        )
         self.detector = FakeDetector()
         self.alert_manager = FakeAlertManager()
     def run(self, source=None):
@@ -41,9 +58,30 @@ def test_alert_page_limit_rejects_200():
     assert TestClient(server.app).get("/alerts?per_page=200").status_code == 422
 
 
+def test_status_exposes_runtime_and_alert_failures(monkeypatch):
+    monkeypatch.setattr(server, "_pipeline", FakePipeline())
+
+    data = TestClient(server.app).get("/status").json()
+
+    assert data["source_state"] == "disconnected"
+    assert data["last_error"]["stage"] == "source"
+    assert data["latest_alert_delivery"]["status"] == "failed"
+    assert data["latest_alert_delivery"]["error"] == "smtp unavailable"
+
+
+def test_status_retains_latest_alert_failure_while_pipeline_is_idle(monkeypatch):
+    monkeypatch.setattr(server, "_pipeline", None)
+    monkeypatch.setattr(server, "_history_records", lambda: FakeAlertManager.history)
+
+    data = TestClient(server.app).get("/status").json()
+
+    assert data["source_state"] == "idle"
+    assert data["latest_alert_delivery"]["status"] == "failed"
+
+
 def test_config_updates_all_supported_settings(monkeypatch):
     pipeline = FakePipeline()
-    server._pipeline = pipeline
+    monkeypatch.setattr(server, "_pipeline", pipeline)
     client = TestClient(server.app)
     response = client.post("/pipeline/config", json={"confidence": 0.7, "frame_consistency": 7, "cooldown_seconds": 15, "enable_email": False, "enable_whatsapp": False})
     assert response.status_code == 200

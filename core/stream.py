@@ -44,6 +44,7 @@ class VideoStream:
         self._frame_count = 0
         self._start_time = time.time()
         self._is_file = isinstance(source, str) and Path(source).is_file()
+        self.end_reason: Optional[str] = None
 
     def __enter__(self) -> "VideoStream":
         self.open()
@@ -53,6 +54,7 @@ class VideoStream:
         self.release()
 
     def open(self) -> None:
+        self.end_reason = None
         self._cap = cv2.VideoCapture(self.source)
         if not self._cap.isOpened():
             raise RuntimeError(f"Cannot open video source: {safe_source_label(self.source)!r}")
@@ -74,6 +76,7 @@ class VideoStream:
             ret, frame = self._cap.read()
             if not ret:
                 if self._is_file:
+                    self.end_reason = "ended"
                     logger.info("Reached end of video file")
                     break
                 logger.warning("Frame read failed; attempting one reconnect")
@@ -82,6 +85,7 @@ class VideoStream:
                 self._cap = cv2.VideoCapture(self.source)
                 ret, frame = self._cap.read() if self._cap.isOpened() else (False, None)
                 if not ret:
+                    self.end_reason = "disconnected"
                     logger.error("Cannot recover stream; stopping")
                     break
             self._frame_count += 1
