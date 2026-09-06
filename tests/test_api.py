@@ -20,22 +20,25 @@ class FakeAlertManager:
     history = [
         SimpleNamespace(
             id=7,
-            status="failed",
-            completed_at="2026-09-06 10:00:00",
-            error="smtp unavailable",
+            notification_status="failed",
+            notification_channel="email",
+            notification_completed_at="2026-09-06 10:00:00",
+            notification_error="smtp unavailable",
+            notification_suppression_reason=None,
         )
     ]
     cooldown = 30
     seconds_until_next_alert = 0
     enable_email = True
     enable_whatsapp = True
+    accepted_notifications = 0
 
 
 class FakePipeline:
     def __init__(self, **kwargs):
         self._running = False
         self.frames_processed = 0
-        self.alerts_fired = 0
+        self.events_recorded = 1
         self.uptime = 0
         self.fps = 0
         self.source_state = "disconnected"
@@ -62,7 +65,7 @@ def test_alert_page_limit_rejects_200():
     assert TestClient(server.app).get("/alerts?per_page=200").status_code == 422
 
 
-def test_status_exposes_runtime_and_alert_failures(monkeypatch):
+def test_status_exposes_runtime_and_notification_failures(monkeypatch):
     monkeypatch.setattr(server, "_pipeline", FakePipeline())
 
     data = TestClient(server.app).get("/status").json()
@@ -70,18 +73,22 @@ def test_status_exposes_runtime_and_alert_failures(monkeypatch):
     assert data["source_state"] == "disconnected"
     assert data["event_active"] is False
     assert data["last_error"]["stage"] == "source"
-    assert data["latest_alert_delivery"]["status"] == "failed"
-    assert data["latest_alert_delivery"]["error"] == "smtp unavailable"
+    assert data["events_recorded"] == 1
+    assert data["notifications_accepted"] == 0
+    assert data["latest_notification"]["status"] == "failed"
+    assert data["latest_notification"]["error"] == "smtp unavailable"
 
 
-def test_status_retains_latest_alert_failure_while_pipeline_is_idle(monkeypatch):
+def test_status_retains_latest_notification_failure_while_pipeline_is_idle(
+    monkeypatch,
+):
     monkeypatch.setattr(server, "_pipeline", None)
     monkeypatch.setattr(server, "_history_records", lambda: FakeAlertManager.history)
 
     data = TestClient(server.app).get("/status").json()
 
     assert data["source_state"] == "idle"
-    assert data["latest_alert_delivery"]["status"] == "failed"
+    assert data["latest_notification"]["status"] == "failed"
 
 
 def test_config_updates_all_supported_settings(monkeypatch):

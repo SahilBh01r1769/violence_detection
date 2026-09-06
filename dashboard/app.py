@@ -176,7 +176,7 @@ if page == "Live Monitor":
     m1, m2, m3, m4 = st.columns(4)
     m1.metric("Status", "Active" if status.get("running") else "Offline")
     m2.metric("Frames", f"{status.get('frames_processed', 0):,}")
-    m3.metric("Alerts", status.get("alerts_fired", 0))
+    m3.metric("Event history", status.get("event_history_count", 0))
     m4.metric("FPS", f"{status.get('fps', 0):.1f}")
 
     frame_loading = loading_placeholder(tall=True)

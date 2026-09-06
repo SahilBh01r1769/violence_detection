@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import logging
 import threading
 import time
@@ -15,7 +14,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel, Field
 
-from alerts.alert_manager import ALERT_LOG_FILE, AlertRecord
+from alerts.alert_manager import ALERT_LOG_FILE, load_event_history
 from config import (
     ALERT_COOLDOWN_SECONDS,
     CONFIDENCE_THRESHOLD,
@@ -43,10 +42,9 @@ def _history_records():
     if not ALERT_LOG_FILE.exists():
         return []
     try:
-        data = json.loads(ALERT_LOG_FILE.read_text(encoding="utf-8"))
-        return list(reversed([AlertRecord(**record) for record in data]))
+        return list(reversed(load_event_history(ALERT_LOG_FILE)))
     except Exception as exc:
-        logger.warning("Could not read persisted alert history: %s", exc)
+        logger.warning("Could not read persisted event history: %s", exc)
         return []
 
 
@@ -62,15 +60,17 @@ def _frame_callback(annotated_frame, _result):
         _latest_frame = annotated_frame.copy()
 
 
-def _latest_delivery(history):
+def _latest_notification(history):
     if not history:
         return None
     alert = history[0]
     return {
         "id": alert.id,
-        "status": alert.status,
-        "completed_at": alert.completed_at,
-        "error": alert.error,
+        "status": alert.notification_status,
+        "channel": alert.notification_channel,
+        "completed_at": alert.notification_completed_at,
+        "error": alert.notification_error,
+        "suppression_reason": alert.notification_suppression_reason,
     }
 
 
@@ -87,19 +87,20 @@ def status():
             "running": False,
             "source_state": "idle",
             "last_error": None,
-            "latest_alert_delivery": _latest_delivery(history),
-            "alert_history_count": len(history),
+            "latest_notification": _latest_notification(history),
+            "event_history_count": len(history),
         }
     return {
         "running": _pipeline._running,
         "source_state": _pipeline.source_state,
         "last_error": _pipeline.last_error.as_dict() if _pipeline.last_error else None,
-        "latest_alert_delivery": _latest_delivery(history),
+        "latest_notification": _latest_notification(history),
         "frames_processed": _pipeline.frames_processed,
-        "alerts_fired": _pipeline.alerts_fired,
+        "events_recorded": _pipeline.events_recorded,
+        "notifications_accepted": _pipeline.alert_manager.accepted_notifications,
         "uptime_seconds": round(_pipeline.uptime, 1),
         "fps": round(_pipeline.fps, 2),
-        "alert_history_count": len(history),
+        "event_history_count": len(history),
         "cooldown_remaining": round(_pipeline.alert_manager.seconds_until_next_alert, 1),
         "cooldown_seconds": _pipeline.alert_manager.cooldown,
         "confidence": _pipeline.detector.confidence,

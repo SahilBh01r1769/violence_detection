@@ -76,7 +76,7 @@ class DetectionPipeline:
         )
         self.alert_manager = AlertManager(location, cooldown_seconds, enable_email, enable_whatsapp)
         self.frames_processed = 0
-        self.alerts_fired = 0
+        self.events_recorded = 0
         self.start_time = 0.0
         self.end_time = 0.0
         self.source_state = "idle"
@@ -85,7 +85,7 @@ class DetectionPipeline:
     def run(self, source=None) -> None:
         source = normalise_source(source)
         self.frames_processed = 0
-        self.alerts_fired = 0
+        self.events_recorded = 0
         self.start_time = time.time()
         self.end_time = 0.0
         self.source_state = "connecting"
@@ -108,14 +108,35 @@ class DetectionPipeline:
                         raise
                     self.frames_processed += 1
                     annotated = ViolenceDetector.annotate_frame(result)
-                    if result.alert_triggered and self.alert_manager.can_trigger:
+                    if result.alert_triggered:
                         try:
-                            screenshot_path = stream.save_screenshot(annotated, prefix="alert")
-                            if self.alert_manager.trigger(result.primary_class, result.max_confidence, annotated, screenshot_path):
-                                self.alerts_fired += 1
+                            screenshot_path = stream.save_screenshot(
+                                annotated,
+                                prefix="event",
+                            )
+                            event = self.alert_manager.record_event(
+                                result.primary_class,
+                                result.max_confidence,
+                                screenshot_path,
+                                source=safe_source_label(source),
+                            )
+                            self.events_recorded += 1
                         except Exception as exc:
                             self._record_error("alert", exc)
                             raise
+                        try:
+                            self.alert_manager.request_notification(
+                                event.id,
+                                result.primary_class,
+                                result.max_confidence,
+                                screenshot_path,
+                            )
+                        except Exception as exc:
+                            self._record_error("alert", exc)
+                            logger.exception(
+                                "Notification bookkeeping failed for event #%d",
+                                event.id,
+                            )
                     if self.on_frame:
                         self.on_frame(annotated, result)
                     if self.show_window:
@@ -140,7 +161,12 @@ class DetectionPipeline:
             self.end_time = time.time()
             if self.show_window:
                 cv2.destroyAllWindows()
-            logger.info("Pipeline stopped. Frames: %d | Alerts: %d | Uptime: %.0fs", self.frames_processed, self.alerts_fired, self.uptime)
+            logger.info(
+                "Pipeline stopped. Frames: %d | Events: %d | Uptime: %.0fs",
+                self.frames_processed,
+                self.events_recorded,
+                self.uptime,
+            )
 
     def stop(self) -> None:
         self._running = False
