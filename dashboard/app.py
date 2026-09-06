@@ -12,7 +12,15 @@ import plotly.express as px
 import requests
 import streamlit as st
 
-from config import ALERT_COOLDOWN_SECONDS, CONFIDENCE_THRESHOLD, ENABLE_EMAIL_ALERTS, ENABLE_WHATSAPP_ALERTS, FRAME_CONSISTENCY, VIDEO_SOURCE
+from config import (
+    ALERT_COOLDOWN_SECONDS,
+    CONFIDENCE_THRESHOLD,
+    ENABLE_EMAIL_ALERTS,
+    ENABLE_WHATSAPP_ALERTS,
+    FRAME_CONSISTENCY,
+    NEGATIVE_RELEASE_FRAMES,
+    VIDEO_SOURCE,
+)
 
 API_BASE = os.getenv("API_BASE", "http://localhost:8000")
 st.set_page_config(page_title="Violence Detection System", layout="wide")
@@ -136,6 +144,9 @@ def start_payload() -> dict:
         "location": setting("location", "Camera-01"),
         "confidence": float(setting("confidence", CONFIDENCE_THRESHOLD)),
         "frame_consistency": int(setting("frame_consistency", FRAME_CONSISTENCY)),
+        "negative_release_frames": int(
+            setting("negative_release_frames", NEGATIVE_RELEASE_FRAMES)
+        ),
         "cooldown_seconds": int(setting("cooldown", ALERT_COOLDOWN_SECONDS)),
         "enable_email": bool(setting("enable_email", ENABLE_EMAIL_ALERTS)),
         "enable_whatsapp": bool(setting("enable_whatsapp", ENABLE_WHATSAPP_ALERTS)),
@@ -182,7 +193,9 @@ if page == "Live Monitor":
     st.write(
         f"Cooldown remaining: **{status.get('cooldown_remaining', 0):.0f}s** | "
         f"Confidence: **{status.get('confidence', setting('confidence', CONFIDENCE_THRESHOLD)):.2f}** | "
-        f"Frame consistency: **{status.get('frame_consistency', setting('frame_consistency', FRAME_CONSISTENCY))}**"
+        f"Positive qualification: **{status.get('frame_consistency', setting('frame_consistency', FRAME_CONSISTENCY))} frames** | "
+        f"Negative release: **{status.get('negative_release_frames', setting('negative_release_frames', NEGATIVE_RELEASE_FRAMES))} frames** | "
+        f"Event active: **{'yes' if status.get('event_active') else 'no'}**"
     )
     if st.checkbox("Auto-refresh every second", value=True):
         time.sleep(1)
@@ -242,6 +255,12 @@ elif page == "Settings":
     with st.form("settings"):
         confidence = st.slider("Confidence threshold", 0.05, 1.0, float(setting("confidence", CONFIDENCE_THRESHOLD)), 0.05)
         frame_consistency = st.number_input("Consecutive violent frames required", 1, 120, int(setting("frame_consistency", FRAME_CONSISTENCY)))
+        negative_release_frames = st.number_input(
+            "Consecutive negative frames to end an event",
+            1,
+            120,
+            int(setting("negative_release_frames", NEGATIVE_RELEASE_FRAMES)),
+        )
         cooldown = st.number_input("Alert cooldown (seconds)", 0, 86400, int(setting("cooldown", ALERT_COOLDOWN_SECONDS)))
         location = st.text_input("Camera/location label", setting("location", "Camera-01"))
         video_source = st.text_input("Video source", str(setting("video_source", VIDEO_SOURCE)))
@@ -252,6 +271,7 @@ elif page == "Settings":
         st.session_state.update(
             confidence=confidence,
             frame_consistency=int(frame_consistency),
+            negative_release_frames=int(negative_release_frames),
             cooldown=int(cooldown),
             location=location,
             video_source=video_source,
@@ -264,6 +284,7 @@ elif page == "Settings":
                 {
                     "confidence": confidence,
                     "frame_consistency": int(frame_consistency),
+                    "negative_release_frames": int(negative_release_frames),
                     "cooldown_seconds": int(cooldown),
                     "enable_email": enable_email,
                     "enable_whatsapp": enable_whatsapp,

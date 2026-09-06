@@ -8,8 +8,12 @@ import api.server as server
 class FakeDetector:
     confidence = 0.55
     frame_consistency = 5
+    negative_release_frames = 1
+    event_active = False
     def set_frame_consistency(self, value):
         self.frame_consistency = value
+    def set_negative_release_frames(self, value):
+        self.negative_release_frames = value
 
 
 class FakeAlertManager:
@@ -64,6 +68,7 @@ def test_status_exposes_runtime_and_alert_failures(monkeypatch):
     data = TestClient(server.app).get("/status").json()
 
     assert data["source_state"] == "disconnected"
+    assert data["event_active"] is False
     assert data["last_error"]["stage"] == "source"
     assert data["latest_alert_delivery"]["status"] == "failed"
     assert data["latest_alert_delivery"]["error"] == "smtp unavailable"
@@ -83,10 +88,21 @@ def test_config_updates_all_supported_settings(monkeypatch):
     pipeline = FakePipeline()
     monkeypatch.setattr(server, "_pipeline", pipeline)
     client = TestClient(server.app)
-    response = client.post("/pipeline/config", json={"confidence": 0.7, "frame_consistency": 7, "cooldown_seconds": 15, "enable_email": False, "enable_whatsapp": False})
+    response = client.post(
+        "/pipeline/config",
+        json={
+            "confidence": 0.7,
+            "frame_consistency": 7,
+            "negative_release_frames": 3,
+            "cooldown_seconds": 15,
+            "enable_email": False,
+            "enable_whatsapp": False,
+        },
+    )
     assert response.status_code == 200
     assert pipeline.detector.confidence == 0.7
     assert pipeline.detector.frame_consistency == 7
+    assert pipeline.detector.negative_release_frames == 3
     assert pipeline.alert_manager.cooldown == 15
     assert not pipeline.alert_manager.enable_email
     assert not pipeline.alert_manager.enable_whatsapp

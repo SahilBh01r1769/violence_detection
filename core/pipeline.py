@@ -13,7 +13,18 @@ from typing import Callable, Optional
 import cv2
 
 from alerts.alert_manager import AlertManager
-from config import ALERT_COOLDOWN_SECONDS, CONFIDENCE_THRESHOLD, ENABLE_EMAIL_ALERTS, ENABLE_WHATSAPP_ALERTS, FRAME_CONSISTENCY, MODEL_PATH, VIDEO_SOURCE, VIOLENCE_CLASSES, VIOLENCE_CLASS_IDS
+from config import (
+    ALERT_COOLDOWN_SECONDS,
+    CONFIDENCE_THRESHOLD,
+    ENABLE_EMAIL_ALERTS,
+    ENABLE_WHATSAPP_ALERTS,
+    FRAME_CONSISTENCY,
+    MODEL_PATH,
+    NEGATIVE_RELEASE_FRAMES,
+    VIDEO_SOURCE,
+    VIOLENCE_CLASSES,
+    VIOLENCE_CLASS_IDS,
+)
 from core.detector import ViolenceDetector
 from core.stream import VideoStream, safe_source_label
 
@@ -39,12 +50,30 @@ def normalise_source(source):
 
 
 class DetectionPipeline:
-    def __init__(self, on_frame: Optional[Callable] = None, location: str = "Camera-01", show_window: bool = False, confidence: float = CONFIDENCE_THRESHOLD, frame_consistency: int = FRAME_CONSISTENCY, cooldown_seconds: int = ALERT_COOLDOWN_SECONDS, enable_email: bool = ENABLE_EMAIL_ALERTS, enable_whatsapp: bool = ENABLE_WHATSAPP_ALERTS):
+    def __init__(
+        self,
+        on_frame: Optional[Callable] = None,
+        location: str = "Camera-01",
+        show_window: bool = False,
+        confidence: float = CONFIDENCE_THRESHOLD,
+        frame_consistency: int = FRAME_CONSISTENCY,
+        negative_release_frames: int = NEGATIVE_RELEASE_FRAMES,
+        cooldown_seconds: int = ALERT_COOLDOWN_SECONDS,
+        enable_email: bool = ENABLE_EMAIL_ALERTS,
+        enable_whatsapp: bool = ENABLE_WHATSAPP_ALERTS,
+    ):
         self.on_frame = on_frame
         self.location = location
         self.show_window = show_window
         self._running = False
-        self.detector = ViolenceDetector(MODEL_PATH, confidence, frame_consistency, VIOLENCE_CLASSES, VIOLENCE_CLASS_IDS)
+        self.detector = ViolenceDetector(
+            MODEL_PATH,
+            confidence,
+            frame_consistency,
+            negative_release_frames,
+            VIOLENCE_CLASSES,
+            VIOLENCE_CLASS_IDS,
+        )
         self.alert_manager = AlertManager(location, cooldown_seconds, enable_email, enable_whatsapp)
         self.frames_processed = 0
         self.alerts_fired = 0

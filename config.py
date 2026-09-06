@@ -47,6 +47,7 @@ LOG_DIR.mkdir(parents=True, exist_ok=True)
 
 CONFIDENCE_THRESHOLD = float(os.getenv("CONFIDENCE_THRESHOLD", "0.55"))
 FRAME_CONSISTENCY = int(os.getenv("FRAME_CONSISTENCY", "5"))
+NEGATIVE_RELEASE_FRAMES = int(os.getenv("NEGATIVE_RELEASE_FRAMES", "1"))
 FPS_TARGET = int(os.getenv("FPS_TARGET", "20"))
 VIDEO_SOURCE: int | str = os.getenv("VIDEO_SOURCE", "0")
 if isinstance(VIDEO_SOURCE, str) and VIDEO_SOURCE.isdigit():

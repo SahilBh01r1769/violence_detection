@@ -24,25 +24,22 @@ class ScriptedModel:
         return [prediction]
 
 
-def detector_for(decisions, frame_consistency):
+def detector_for(decisions, frame_consistency, negative_release_frames=1):
     detector = ViolenceDetector.__new__(ViolenceDetector)
     detector.confidence = 0.55
     detector.frame_consistency = frame_consistency
+    detector.negative_release_frames = negative_release_frames
     detector.violence_classes = {"violence"}
     detector.violence_class_ids = {1}
     detector._model = ScriptedModel(decisions)
     detector._model_path = None
     detector._frame_id = 0
-    detector._event_active = False
-
-    from collections import deque
-
-    detector._window = deque(maxlen=frame_consistency)
+    detector._reset_event_state()
     return detector
 
 
-def run_decisions(decisions, frame_consistency):
-    detector = detector_for(decisions, frame_consistency)
+def run_decisions(decisions, frame_consistency, negative_release_frames=1):
+    detector = detector_for(decisions, frame_consistency, negative_release_frames)
     frame = np.zeros((10, 10, 3), dtype=np.uint8)
     return [
         detector.process_frame(frame).alert_triggered
@@ -74,16 +71,16 @@ def test_class_id_one_is_violent_without_loading_model(monkeypatch):
     assert not detector._is_violent_class(0, "NoViolence")
 
 
-def test_changing_frame_consistency_resets_window(monkeypatch):
+def test_changing_frame_consistency_resets_temporal_state(monkeypatch):
     monkeypatch.setattr(ViolenceDetector, "_load_model", lambda self: None)
     detector = ViolenceDetector("unused.pt", frame_consistency=5)
-    detector._window.extend([True, True])
-    detector._event_active = True
+    detector._temporal.update(True)
+    detector._temporal.event_active = True
     detector.set_frame_consistency(3)
     assert detector.frame_consistency == 3
-    assert len(detector._window) == 0
-    assert detector._window.maxlen == 3
-    assert not detector._event_active
+    assert detector._temporal.positive_run == 0
+    assert not detector.event_active
+    assert detector._temporal.negative_run == 0
 
 
 @pytest.mark.parametrize(
@@ -133,6 +130,36 @@ def test_negative_frame_ends_event_and_allows_a_new_trigger():
         False,
         False,
         True,
+        False,
+        False,
+        False,
+        True,
+    ]
+
+
+def test_three_negative_frames_prevent_single_frame_fragmentation():
+    decisions = [True, True, True, False, True, True, True]
+
+    assert run_decisions(decisions, 3, negative_release_frames=3) == [
+        False,
+        False,
+        True,
+        False,
+        False,
+        False,
+        False,
+    ]
+
+
+def test_three_negative_frames_release_event_before_new_positive_run():
+    decisions = [True, True, True, False, False, False, True, True, True]
+
+    assert run_decisions(decisions, 3, negative_release_frames=3) == [
+        False,
+        False,
+        True,
+        False,
+        False,
         False,
         False,
         False,

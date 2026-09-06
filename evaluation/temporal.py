@@ -14,6 +14,8 @@ from pathlib import Path
 from statistics import mean
 from typing import Iterable, Sequence
 
+from core.temporal import TemporalEventFilter
+
 
 @dataclass(frozen=True)
 class FrameObservation:
@@ -27,12 +29,22 @@ class FrameObservation:
 @dataclass(frozen=True)
 class ThresholdMetrics:
     threshold: int
+    negative_release_frames: int
     total_triggers: int
     false_triggers: int
     duplicate_triggers: int
     detected_events: int
     missed_events: int
     mean_alert_delay_seconds: float | None
+    mean_release_delay_seconds: float | None
+    merged_ground_truth_events: int
+
+
+@dataclass(frozen=True)
+class TemporalReplay:
+    trigger_indices: tuple[int, ...]
+    active_intervals: tuple[tuple[int, int], ...]
+    release_delays_seconds: tuple[float, ...]
 
 
 def _as_bool(value: str) -> bool:
@@ -69,26 +81,64 @@ def load_trace(path: Path) -> list[FrameObservation]:
         ]
 
 
-def trigger_indices(
-    observations: Sequence[FrameObservation], threshold: int
-) -> list[int]:
-    if threshold < 1:
-        raise ValueError("threshold must be at least 1")
-
-    positive_run = 0
-    event_active = False
+def replay_temporal_filter(
+    observations: Sequence[FrameObservation],
+    threshold: int,
+    negative_release_frames: int = 1,
+) -> TemporalReplay:
+    temporal_filter = TemporalEventFilter(threshold, negative_release_frames)
     triggers: list[int] = []
-    for index, observation in enumerate(observations):
-        if not observation.is_violent:
-            positive_run = 0
-            event_active = False
-            continue
+    active_intervals: list[tuple[int, int]] = []
+    release_delays: list[float] = []
+    event_start: int | None = None
+    first_negative_timestamp: float | None = None
 
-        positive_run += 1
-        if not event_active and positive_run >= threshold:
+    for index, observation in enumerate(observations):
+        was_active = temporal_filter.event_active
+        if was_active and not observation.is_violent:
+            first_negative_timestamp = (
+                observation.timestamp_seconds
+                if first_negative_timestamp is None
+                else first_negative_timestamp
+            )
+
+        decision = temporal_filter.update(observation.is_violent)
+        if decision.triggered:
             triggers.append(index)
-            event_active = True
-    return triggers
+            event_start = index
+        if decision.event_active and observation.is_violent:
+            first_negative_timestamp = None
+        if decision.released and event_start is not None:
+            active_intervals.append((event_start, index - 1))
+            if first_negative_timestamp is not None:
+                release_delays.append(
+                    observation.timestamp_seconds - first_negative_timestamp
+                )
+            event_start = None
+            first_negative_timestamp = None
+
+    if temporal_filter.event_active and event_start is not None:
+        active_intervals.append((event_start, len(observations) - 1))
+
+    return TemporalReplay(
+        tuple(triggers),
+        tuple(active_intervals),
+        tuple(release_delays),
+    )
+
+
+def trigger_indices(
+    observations: Sequence[FrameObservation],
+    threshold: int,
+    negative_release_frames: int = 1,
+) -> list[int]:
+    return list(
+        replay_temporal_filter(
+            observations,
+            threshold,
+            negative_release_frames,
+        ).trigger_indices
+    )
 
 
 def ground_truth_events(
@@ -108,9 +158,16 @@ def ground_truth_events(
 
 
 def evaluate_threshold(
-    observations: Sequence[FrameObservation], threshold: int
+    observations: Sequence[FrameObservation],
+    threshold: int,
+    negative_release_frames: int = 1,
 ) -> ThresholdMetrics:
-    triggers = trigger_indices(observations, threshold)
+    replay = replay_temporal_filter(
+        observations,
+        threshold,
+        negative_release_frames,
+    )
+    triggers = replay.trigger_indices
     events = ground_truth_events(observations)
     false_triggers = sum(
         not observations[index].ground_truth_violent for index in triggers
@@ -130,21 +187,58 @@ def evaluate_threshold(
             - observations[start].timestamp_seconds
         )
 
+    merged_ground_truth_events = sum(
+        max(
+            0,
+            sum(
+                active_start <= truth_end and truth_start <= active_end
+                for truth_start, truth_end in events
+            )
+            - 1,
+        )
+        for active_start, active_end in replay.active_intervals
+    )
+
     return ThresholdMetrics(
         threshold=threshold,
+        negative_release_frames=negative_release_frames,
         total_triggers=len(triggers),
         false_triggers=false_triggers,
         duplicate_triggers=duplicate_triggers,
         detected_events=detected_events,
         missed_events=len(events) - detected_events,
         mean_alert_delay_seconds=round(mean(delays), 4) if delays else None,
+        mean_release_delay_seconds=(
+            round(mean(replay.release_delays_seconds), 4)
+            if replay.release_delays_seconds
+            else None
+        ),
+        merged_ground_truth_events=merged_ground_truth_events,
     )
 
 
 def compare_thresholds(
-    observations: Sequence[FrameObservation], thresholds: Iterable[int]
+    observations: Sequence[FrameObservation],
+    thresholds: Iterable[int],
+    negative_release_frames: int = 1,
 ) -> list[ThresholdMetrics]:
-    return [evaluate_threshold(observations, value) for value in thresholds]
+    return [
+        evaluate_threshold(observations, value, negative_release_frames)
+        for value in thresholds
+    ]
+
+
+def compare_temporal_settings(
+    observations: Sequence[FrameObservation],
+    thresholds: Iterable[int],
+    negative_release_values: Iterable[int],
+) -> list[ThresholdMetrics]:
+    threshold_values = tuple(thresholds)
+    return [
+        evaluate_threshold(observations, threshold, negative_release_frames)
+        for negative_release_frames in negative_release_values
+        for threshold in threshold_values
+    ]
 
 
 def main() -> None:
@@ -153,11 +247,23 @@ def main() -> None:
     )
     parser.add_argument("trace", type=Path)
     parser.add_argument("--thresholds", default="1,3,5,10")
+    parser.add_argument(
+        "--negative-release-frames",
+        default="1,3",
+        help="comma-separated negative-frame release values",
+    )
     parser.add_argument("--output", type=Path)
     args = parser.parse_args()
 
     thresholds = [int(value) for value in args.thresholds.split(",")]
-    results = compare_thresholds(load_trace(args.trace), thresholds)
+    negative_release_values = [
+        int(value) for value in args.negative_release_frames.split(",")
+    ]
+    results = compare_temporal_settings(
+        load_trace(args.trace),
+        thresholds,
+        negative_release_values,
+    )
     rendered = json.dumps([asdict(result) for result in results], indent=2)
     if args.output:
         args.output.write_text(rendered + "\n", encoding="utf-8")

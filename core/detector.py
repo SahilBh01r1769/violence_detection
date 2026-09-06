@@ -1,10 +1,9 @@
-"""YOLOv8 violence detector with an N-frame temporal consistency filter."""
+"""YOLOv8 violence detector with N-positive/K-negative event filtering."""
 
 from __future__ import annotations
 
 import logging
 import time
-from collections import deque
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import List, Optional, Tuple
@@ -13,6 +12,7 @@ import cv2
 import numpy as np
 
 from config import AUTO_DOWNLOAD_MODEL, MODEL_DOWNLOAD_URL, VIOLENCE_CLASS_IDS
+from core.temporal import TemporalEventFilter
 from utils.download_model import ensure_model
 
 logger = logging.getLogger(__name__)
@@ -52,16 +52,37 @@ class DetectionResult:
 
 
 class ViolenceDetector:
-    def __init__(self, model_path: str | Path, confidence: float = 0.55, frame_consistency: int = 5, violence_classes: Optional[List[str]] = None, violence_class_ids: Optional[set[int]] = None):
+    def __init__(
+        self,
+        model_path: str | Path,
+        confidence: float = 0.55,
+        frame_consistency: int = 5,
+        negative_release_frames: int = 1,
+        violence_classes: Optional[List[str]] = None,
+        violence_class_ids: Optional[set[int]] = None,
+    ):
         self.confidence = confidence
         self.frame_consistency = max(1, int(frame_consistency))
-        self.violence_classes = {self._normalise_name(name) for name in (violence_classes or ["violence", "fight", "fighting", "violence/fight"])}
-        self.violence_class_ids = set(VIOLENCE_CLASS_IDS if violence_class_ids is None else violence_class_ids)
+        self.negative_release_frames = max(1, int(negative_release_frames))
+        self.violence_classes = {
+            self._normalise_name(name)
+            for name in (
+                violence_classes
+                or ["violence", "fight", "fighting", "violence/fight"]
+            )
+        }
+        self.violence_class_ids = set(
+            VIOLENCE_CLASS_IDS
+            if violence_class_ids is None
+            else violence_class_ids
+        )
         self._model = None
         self._model_path = Path(model_path)
         self._frame_id = 0
-        self._window: deque[bool] = deque(maxlen=self.frame_consistency)
-        self._event_active = False
+        self._temporal = TemporalEventFilter(
+            self.frame_consistency,
+            self.negative_release_frames,
+        )
         self._load_model()
 
     @staticmethod
@@ -97,8 +118,17 @@ class ViolenceDetector:
 
     def set_frame_consistency(self, value: int) -> None:
         self.frame_consistency = max(1, int(value))
-        self._window = deque(maxlen=self.frame_consistency)
-        self._event_active = False
+        self._reset_event_state()
+
+    def set_negative_release_frames(self, value: int) -> None:
+        self.negative_release_frames = max(1, int(value))
+        self._reset_event_state()
+
+    def _reset_event_state(self) -> None:
+        self._temporal = TemporalEventFilter(
+            self.frame_consistency,
+            self.negative_release_frames,
+        )
 
     def process_frame(self, frame: np.ndarray) -> DetectionResult:
         self._frame_id += 1
@@ -120,17 +150,13 @@ class ViolenceDetector:
             logger.exception("Inference failed on frame %d", self._frame_id)
             raise RuntimeError(f"Model inference failed on frame {self._frame_id}") from exc
 
-        self._window.append(result.is_violent)
-        if not result.is_violent:
-            self._event_active = False
-        elif (
-            not self._event_active
-            and len(self._window) == self.frame_consistency
-            and all(self._window)
-        ):
-            result.alert_triggered = True
-            self._event_active = True
+        temporal_decision = self._temporal.update(result.is_violent)
+        result.alert_triggered = temporal_decision.triggered
         return result
+
+    @property
+    def event_active(self) -> bool:
+        return self._temporal.event_active
 
     @staticmethod
     def annotate_frame(result: DetectionResult) -> np.ndarray:

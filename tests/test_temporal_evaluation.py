@@ -1,5 +1,8 @@
+import pytest
+
 from evaluation.temporal import (
     FrameObservation,
+    compare_temporal_settings,
     compare_thresholds,
     evaluate_threshold,
     trigger_indices,
@@ -68,3 +71,52 @@ def test_negative_prediction_resets_positive_run():
         [False] * 6,
     )
     assert trigger_indices(trace, 3) == [5]
+
+
+def test_release_comparison_reuses_trace_and_exposes_fragmentation_tradeoff():
+    trace = observations(
+        [True, True, True, False, True, True, True],
+        [True] * 7,
+    )
+
+    one_negative, three_negative = compare_temporal_settings(trace, [3], [1, 3])
+
+    assert one_negative.negative_release_frames == 1
+    assert one_negative.total_triggers == 2
+    assert one_negative.duplicate_triggers == 1
+    assert three_negative.negative_release_frames == 3
+    assert three_negative.total_triggers == 1
+    assert three_negative.duplicate_triggers == 0
+
+
+def test_release_requires_positive_integer():
+    trace = observations([True], [True])
+
+    with pytest.raises(ValueError, match="negative_release_frames"):
+        trigger_indices(trace, 1, negative_release_frames=0)
+
+
+def test_release_comparison_measures_end_delay_in_video_time():
+    trace = observations(
+        [True, True, True, False, False, False],
+        [True, True, True, False, False, False],
+    )
+
+    one_negative, three_negative = compare_temporal_settings(trace, [3], [1, 3])
+
+    assert one_negative.mean_release_delay_seconds == 0.0
+    assert three_negative.mean_release_delay_seconds == 0.2
+
+
+def test_release_comparison_marks_ground_truth_events_merged_by_active_run():
+    trace = observations(
+        [True, True, True, False, False, True, True, True, False, False, False],
+        [True, True, True, False, False, True, True, True, False, False, False],
+    )
+
+    one_negative, three_negative = compare_temporal_settings(trace, [3], [1, 3])
+
+    assert one_negative.total_triggers == 2
+    assert one_negative.merged_ground_truth_events == 0
+    assert three_negative.total_triggers == 1
+    assert three_negative.merged_ground_truth_events == 1

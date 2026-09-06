@@ -16,7 +16,15 @@ from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel, Field
 
 from alerts.alert_manager import ALERT_LOG_FILE, AlertRecord
-from config import ALERT_COOLDOWN_SECONDS, CONFIDENCE_THRESHOLD, ENABLE_EMAIL_ALERTS, ENABLE_WHATSAPP_ALERTS, FRAME_CONSISTENCY, VIDEO_SOURCE
+from config import (
+    ALERT_COOLDOWN_SECONDS,
+    CONFIDENCE_THRESHOLD,
+    ENABLE_EMAIL_ALERTS,
+    ENABLE_WHATSAPP_ALERTS,
+    FRAME_CONSISTENCY,
+    NEGATIVE_RELEASE_FRAMES,
+    VIDEO_SOURCE,
+)
 from core.pipeline import DetectionPipeline
 
 logger = logging.getLogger(__name__)
@@ -96,6 +104,8 @@ def status():
         "cooldown_seconds": _pipeline.alert_manager.cooldown,
         "confidence": _pipeline.detector.confidence,
         "frame_consistency": _pipeline.detector.frame_consistency,
+        "negative_release_frames": _pipeline.detector.negative_release_frames,
+        "event_active": _pipeline.detector.event_active,
         "email_enabled": _pipeline.alert_manager.enable_email,
         "whatsapp_enabled": _pipeline.alert_manager.enable_whatsapp,
     }
@@ -126,6 +136,7 @@ class PipelineStartRequest(BaseModel):
     location: str = "Camera-01"
     confidence: float = Field(CONFIDENCE_THRESHOLD, ge=0.0, le=1.0)
     frame_consistency: int = Field(FRAME_CONSISTENCY, ge=1, le=120)
+    negative_release_frames: int = Field(NEGATIVE_RELEASE_FRAMES, ge=1, le=120)
     cooldown_seconds: int = Field(ALERT_COOLDOWN_SECONDS, ge=0, le=86400)
     enable_email: bool = ENABLE_EMAIL_ALERTS
     enable_whatsapp: bool = ENABLE_WHATSAPP_ALERTS
@@ -144,7 +155,17 @@ def start_pipeline(req: PipelineStartRequest):
         _clear_latest_frame()
         source = int(req.source) if req.source.isdigit() else req.source
         try:
-            _pipeline = DetectionPipeline(on_frame=_frame_callback, location=req.location, show_window=False, confidence=req.confidence, frame_consistency=req.frame_consistency, cooldown_seconds=req.cooldown_seconds, enable_email=req.enable_email, enable_whatsapp=req.enable_whatsapp)
+            _pipeline = DetectionPipeline(
+                on_frame=_frame_callback,
+                location=req.location,
+                show_window=False,
+                confidence=req.confidence,
+                frame_consistency=req.frame_consistency,
+                negative_release_frames=req.negative_release_frames,
+                cooldown_seconds=req.cooldown_seconds,
+                enable_email=req.enable_email,
+                enable_whatsapp=req.enable_whatsapp,
+            )
         except Exception as exc:
             logger.exception("Could not initialise pipeline")
             raise HTTPException(500, f"Could not initialise pipeline: {exc}") from exc
@@ -168,6 +189,7 @@ def stop_pipeline():
 class PipelineConfigRequest(BaseModel):
     confidence: Optional[float] = Field(None, ge=0.0, le=1.0)
     frame_consistency: Optional[int] = Field(None, ge=1, le=120)
+    negative_release_frames: Optional[int] = Field(None, ge=1, le=120)
     cooldown_seconds: Optional[int] = Field(None, ge=0, le=86400)
     enable_email: Optional[bool] = None
     enable_whatsapp: Optional[bool] = None
@@ -181,6 +203,8 @@ def update_config(req: PipelineConfigRequest):
         _pipeline.detector.confidence = req.confidence
     if req.frame_consistency is not None:
         _pipeline.detector.set_frame_consistency(req.frame_consistency)
+    if req.negative_release_frames is not None:
+        _pipeline.detector.set_negative_release_frames(req.negative_release_frames)
     if req.cooldown_seconds is not None:
         _pipeline.alert_manager.cooldown = req.cooldown_seconds
     if req.enable_email is not None:
