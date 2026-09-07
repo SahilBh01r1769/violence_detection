@@ -15,5 +15,4 @@ pandas>=2,<3
 requests>=2.31,<3
 
 # Notifications / config
-twilio>=8.10,<10
 python-dotenv>=1,<2

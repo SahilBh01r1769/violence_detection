@@ -21,7 +21,7 @@ def test_pipeline_persists_event_when_notifications_are_disabled(
 ):
     monkeypatch.setattr(alert_module, "EVENT_LOG_FILE", tmp_path / "events.json")
     monkeypatch.setattr(ViolenceDetector, "_load_model", lambda self: None)
-    pipeline = DetectionPipeline(enable_email=False, enable_whatsapp=False)
+    pipeline = DetectionPipeline(enable_telegram=False)
     frame = np.zeros((10, 10, 3), dtype=np.uint8)
     result = DetectionResult(
         frame=frame,
@@ -59,7 +59,7 @@ def test_pipeline_persists_event_when_notifications_are_disabled(
     event = pipeline.alert_manager.history[0]
     assert event.source == "sample.mp4"
     assert event.notification_status == "not_attempted"
-    assert event.notification_suppression_reason == "no_channel_enabled"
+    assert event.notification_suppression_reason == "telegram_disabled"
 
 
 def test_notification_bookkeeping_failure_does_not_erase_or_stop_event(
@@ -68,7 +68,7 @@ def test_notification_bookkeeping_failure_does_not_erase_or_stop_event(
 ):
     monkeypatch.setattr(alert_module, "EVENT_LOG_FILE", tmp_path / "events.json")
     monkeypatch.setattr(ViolenceDetector, "_load_model", lambda self: None)
-    pipeline = DetectionPipeline(enable_email=False, enable_whatsapp=False)
+    pipeline = DetectionPipeline(enable_telegram=False)
     frame = np.zeros((10, 10, 3), dtype=np.uint8)
     result = DetectionResult(
         frame=frame,

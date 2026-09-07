@@ -10,14 +10,18 @@ from dataclasses import asdict, dataclass, fields
 from pathlib import Path
 from typing import List, Optional
 
-from alerts.email_alert import send_email_alert
-from alerts.whatsapp_alert import send_whatsapp_alert
-from config import ALERT_COOLDOWN_SECONDS, LOG_DIR
+from alerts.telegram_alert import send_telegram_alert
+from config import (
+    ALERT_COOLDOWN_SECONDS,
+    ENABLE_TELEGRAM_ALERTS,
+    LOG_DIR,
+    TELEGRAM_BOT_TOKEN,
+    TELEGRAM_CHAT_ID,
+)
 
 logger = logging.getLogger(__name__)
-EVENT_LOG_FILE = LOG_DIR / "alert_history.json"
-# Compatibility for existing imports while the on-disk history remains readable.
-ALERT_LOG_FILE = EVENT_LOG_FILE
+EVENT_LOG_FILE = LOG_DIR / "event_history.json"
+LEGACY_ALERT_LOG_FILE = LOG_DIR / "alert_history.json"
 
 
 @dataclass
@@ -52,9 +56,18 @@ def _legacy_channel(record: dict) -> Optional[str]:
 def _record_from_dict(record: dict) -> EventRecord:
     if "notification_status" in record:
         allowed = {field.name for field in fields(EventRecord)}
-        return EventRecord(
+        event = EventRecord(
             **{key: value for key, value in record.items() if key in allowed}
         )
+        if event.notification_status == "queued":
+            event.notification_status = "failed"
+            event.notification_completed_at = (
+                event.notification_completed_at or event.timestamp
+            )
+            event.notification_error = (
+                "submission outcome unavailable after restart"
+            )
+        return event
 
     legacy_status = record.get("status")
     accepted = bool(
@@ -90,7 +103,13 @@ def _record_from_dict(record: dict) -> EventRecord:
 
 
 def load_event_history(path: Optional[Path] = None) -> list[EventRecord]:
-    history_path = path or EVENT_LOG_FILE
+    history_path = path
+    if history_path is None:
+        history_path = (
+            EVENT_LOG_FILE
+            if EVENT_LOG_FILE.exists()
+            else LEGACY_ALERT_LOG_FILE
+        )
     if not history_path.exists():
         return []
     data = json.loads(history_path.read_text(encoding="utf-8"))
@@ -102,13 +121,15 @@ class AlertManager:
         self,
         location: str = "Camera-01",
         cooldown_seconds: int = ALERT_COOLDOWN_SECONDS,
-        enable_email: bool = True,
-        enable_whatsapp: bool = True,
+        enable_telegram: bool = ENABLE_TELEGRAM_ALERTS,
+        telegram_bot_token: str = TELEGRAM_BOT_TOKEN,
+        telegram_chat_id: str = TELEGRAM_CHAT_ID,
     ):
         self.location = location
         self.cooldown = max(0, int(cooldown_seconds))
-        self.enable_email = enable_email
-        self.enable_whatsapp = enable_whatsapp
+        self.enable_telegram = enable_telegram
+        self.telegram_bot_token = telegram_bot_token
+        self.telegram_chat_id = telegram_chat_id
         self._last_acceptance_time = 0.0
         self._pending_event_id: Optional[int] = None
         self._event_counter = 0
@@ -120,11 +141,6 @@ class AlertManager:
     def can_notify(self) -> bool:
         with self._lock:
             return self._notification_suppression_reason(time.time()) is None
-
-    @property
-    def can_trigger(self) -> bool:
-        """Backward-compatible alias for notification eligibility."""
-        return self.can_notify
 
     def record_event(
         self,
@@ -209,22 +225,6 @@ class AlertManager:
             return False
         return True
 
-    def trigger(
-        self,
-        detected_class: str,
-        confidence: float,
-        frame=None,
-        screenshot_path: Optional[Path] = None,
-    ) -> bool:
-        """Compatibility wrapper that records first, then requests delivery."""
-        record = self.record_event(detected_class, confidence, screenshot_path)
-        return self.request_notification(
-            record.id,
-            detected_class,
-            confidence,
-            screenshot_path,
-        )
-
     @property
     def history(self) -> List[EventRecord]:
         with self._lock:
@@ -234,11 +234,6 @@ class AlertManager:
     def total_events(self) -> int:
         with self._lock:
             return self._event_counter
-
-    @property
-    def total_alerts(self) -> int:
-        """Backward-compatible count of canonical local events."""
-        return self.total_events
 
     @property
     def accepted_notifications(self) -> int:
@@ -257,20 +252,17 @@ class AlertManager:
             )
 
     def _enabled_channels(self) -> list[str]:
-        channels = []
-        if self.enable_email:
-            channels.append("email")
-        if self.enable_whatsapp:
-            channels.append("whatsapp")
-        return channels
+        return ["telegram"] if self.enable_telegram else []
 
     def _notification_suppression_reason(self, now: float) -> Optional[str]:
         if self._pending_event_id is not None:
             return "delivery_pending"
         if now - self._last_acceptance_time < self.cooldown:
             return "cooldown"
-        if not self._enabled_channels():
-            return "no_channel_enabled"
+        if not self.enable_telegram:
+            return "telegram_disabled"
+        if not self.telegram_bot_token or not self.telegram_chat_id:
+            return "telegram_not_configured"
         return None
 
     def _find_event(self, event_id: int) -> EventRecord:
@@ -286,31 +278,22 @@ class AlertManager:
         confidence: float,
         screenshot_path: Optional[Path],
     ) -> None:
-        email_ok = False
-        whatsapp_ok = False
-        error: Optional[str] = None
         try:
-            if self.enable_email:
-                email_ok = send_email_alert(
-                    detected_class=detected_class,
-                    confidence=confidence,
-                    screenshot_path=screenshot_path,
-                    location=self.location,
-                )
-            if self.enable_whatsapp:
-                whatsapp_ok = send_whatsapp_alert(
-                    detected_class=detected_class,
-                    confidence=confidence,
-                    screenshot_path=screenshot_path,
-                    location=self.location,
-                )
+            submission = send_telegram_alert(
+                bot_token=self.telegram_bot_token,
+                chat_id=self.telegram_chat_id,
+                detected_class=detected_class,
+                confidence=confidence,
+                screenshot_path=screenshot_path,
+                location=self.location,
+            )
         except Exception as exc:
             logger.exception("Notification for event #%d raised an exception", event_id)
+            accepted = False
             error = str(exc)
-
-        accepted = email_ok or whatsapp_ok
-        if not accepted and error is None:
-            error = "all enabled delivery channels failed"
+        else:
+            accepted = submission.accepted
+            error = submission.error
         completed_at = time.strftime("%Y-%m-%d %H:%M:%S")
         with self._lock:
             record = self._find_event(event_id)
@@ -335,7 +318,7 @@ class AlertManager:
             raise RuntimeError(f"Could not persist event history: {exc}") from exc
 
     def _load_history(self) -> None:
-        if not EVENT_LOG_FILE.exists():
+        if not EVENT_LOG_FILE.exists() and not LEGACY_ALERT_LOG_FILE.exists():
             return
         try:
             self._history = load_event_history()

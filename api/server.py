@@ -14,12 +14,11 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel, Field
 
-from alerts.alert_manager import ALERT_LOG_FILE, load_event_history
+from alerts.alert_manager import load_event_history
 from config import (
     ALERT_COOLDOWN_SECONDS,
     CONFIDENCE_THRESHOLD,
-    ENABLE_EMAIL_ALERTS,
-    ENABLE_WHATSAPP_ALERTS,
+    ENABLE_TELEGRAM_ALERTS,
     FRAME_CONSISTENCY,
     NEGATIVE_RELEASE_FRAMES,
     VIDEO_SOURCE,
@@ -39,10 +38,8 @@ _pipeline_lock = threading.Lock()
 def _history_records():
     if _pipeline is not None:
         return _pipeline.alert_manager.history
-    if not ALERT_LOG_FILE.exists():
-        return []
     try:
-        return list(reversed(load_event_history(ALERT_LOG_FILE)))
+        return list(reversed(load_event_history()))
     except Exception as exc:
         logger.warning("Could not read persisted event history: %s", exc)
         return []
@@ -107,8 +104,11 @@ def status():
         "frame_consistency": _pipeline.detector.frame_consistency,
         "negative_release_frames": _pipeline.detector.negative_release_frames,
         "event_active": _pipeline.detector.event_active,
-        "email_enabled": _pipeline.alert_manager.enable_email,
-        "whatsapp_enabled": _pipeline.alert_manager.enable_whatsapp,
+        "telegram_enabled": _pipeline.alert_manager.enable_telegram,
+        "telegram_configured": bool(
+            _pipeline.alert_manager.telegram_bot_token
+            and _pipeline.alert_manager.telegram_chat_id
+        ),
     }
 
 
@@ -139,8 +139,7 @@ class PipelineStartRequest(BaseModel):
     frame_consistency: int = Field(FRAME_CONSISTENCY, ge=1, le=120)
     negative_release_frames: int = Field(NEGATIVE_RELEASE_FRAMES, ge=1, le=120)
     cooldown_seconds: int = Field(ALERT_COOLDOWN_SECONDS, ge=0, le=86400)
-    enable_email: bool = ENABLE_EMAIL_ALERTS
-    enable_whatsapp: bool = ENABLE_WHATSAPP_ALERTS
+    enable_telegram: bool = ENABLE_TELEGRAM_ALERTS
 
 
 @app.post("/pipeline/start")
@@ -164,8 +163,7 @@ def start_pipeline(req: PipelineStartRequest):
                 frame_consistency=req.frame_consistency,
                 negative_release_frames=req.negative_release_frames,
                 cooldown_seconds=req.cooldown_seconds,
-                enable_email=req.enable_email,
-                enable_whatsapp=req.enable_whatsapp,
+                enable_telegram=req.enable_telegram,
             )
         except Exception as exc:
             logger.exception("Could not initialise pipeline")
@@ -192,8 +190,7 @@ class PipelineConfigRequest(BaseModel):
     frame_consistency: Optional[int] = Field(None, ge=1, le=120)
     negative_release_frames: Optional[int] = Field(None, ge=1, le=120)
     cooldown_seconds: Optional[int] = Field(None, ge=0, le=86400)
-    enable_email: Optional[bool] = None
-    enable_whatsapp: Optional[bool] = None
+    enable_telegram: Optional[bool] = None
 
 
 @app.post("/pipeline/config")
@@ -208,10 +205,8 @@ def update_config(req: PipelineConfigRequest):
         _pipeline.detector.set_negative_release_frames(req.negative_release_frames)
     if req.cooldown_seconds is not None:
         _pipeline.alert_manager.cooldown = req.cooldown_seconds
-    if req.enable_email is not None:
-        _pipeline.alert_manager.enable_email = req.enable_email
-    if req.enable_whatsapp is not None:
-        _pipeline.alert_manager.enable_whatsapp = req.enable_whatsapp
+    if req.enable_telegram is not None:
+        _pipeline.alert_manager.enable_telegram = req.enable_telegram
     return {"message": "Config updated", "applied": req.model_dump(exclude_none=True)}
 
 

@@ -16,8 +16,7 @@ from alerts.alert_manager import AlertManager
 from config import (
     ALERT_COOLDOWN_SECONDS,
     CONFIDENCE_THRESHOLD,
-    ENABLE_EMAIL_ALERTS,
-    ENABLE_WHATSAPP_ALERTS,
+    ENABLE_TELEGRAM_ALERTS,
     FRAME_CONSISTENCY,
     MODEL_PATH,
     NEGATIVE_RELEASE_FRAMES,
@@ -59,8 +58,7 @@ class DetectionPipeline:
         frame_consistency: int = FRAME_CONSISTENCY,
         negative_release_frames: int = NEGATIVE_RELEASE_FRAMES,
         cooldown_seconds: int = ALERT_COOLDOWN_SECONDS,
-        enable_email: bool = ENABLE_EMAIL_ALERTS,
-        enable_whatsapp: bool = ENABLE_WHATSAPP_ALERTS,
+        enable_telegram: bool = ENABLE_TELEGRAM_ALERTS,
     ):
         self.on_frame = on_frame
         self.location = location
@@ -74,7 +72,11 @@ class DetectionPipeline:
             VIOLENCE_CLASSES,
             VIOLENCE_CLASS_IDS,
         )
-        self.alert_manager = AlertManager(location, cooldown_seconds, enable_email, enable_whatsapp)
+        self.alert_manager = AlertManager(
+            location,
+            cooldown_seconds,
+            enable_telegram,
+        )
         self.frames_processed = 0
         self.events_recorded = 0
         self.start_time = 0.0

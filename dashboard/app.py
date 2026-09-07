@@ -15,8 +15,7 @@ import streamlit as st
 from config import (
     ALERT_COOLDOWN_SECONDS,
     CONFIDENCE_THRESHOLD,
-    ENABLE_EMAIL_ALERTS,
-    ENABLE_WHATSAPP_ALERTS,
+    ENABLE_TELEGRAM_ALERTS,
     FRAME_CONSISTENCY,
     NEGATIVE_RELEASE_FRAMES,
     VIDEO_SOURCE,
@@ -148,8 +147,9 @@ def start_payload() -> dict:
             setting("negative_release_frames", NEGATIVE_RELEASE_FRAMES)
         ),
         "cooldown_seconds": int(setting("cooldown", ALERT_COOLDOWN_SECONDS)),
-        "enable_email": bool(setting("enable_email", ENABLE_EMAIL_ALERTS)),
-        "enable_whatsapp": bool(setting("enable_whatsapp", ENABLE_WHATSAPP_ALERTS)),
+        "enable_telegram": bool(
+            setting("enable_telegram", ENABLE_TELEGRAM_ALERTS)
+        ),
     }
 
 
@@ -264,8 +264,10 @@ elif page == "Settings":
         cooldown = st.number_input("Alert cooldown (seconds)", 0, 86400, int(setting("cooldown", ALERT_COOLDOWN_SECONDS)))
         location = st.text_input("Camera/location label", setting("location", "Camera-01"))
         video_source = st.text_input("Video source", str(setting("video_source", VIDEO_SOURCE)))
-        enable_email = st.checkbox("Enable Email alerts", value=bool(setting("enable_email", ENABLE_EMAIL_ALERTS)))
-        enable_whatsapp = st.checkbox("Enable WhatsApp alerts", value=bool(setting("enable_whatsapp", ENABLE_WHATSAPP_ALERTS)))
+        enable_telegram = st.checkbox(
+            "Enable Telegram notifications",
+            value=bool(setting("enable_telegram", ENABLE_TELEGRAM_ALERTS)),
+        )
         submitted = st.form_submit_button("Save and Apply")
     if submitted:
         st.session_state.update(
@@ -275,8 +277,7 @@ elif page == "Settings":
             cooldown=int(cooldown),
             location=location,
             video_source=video_source,
-            enable_email=enable_email,
-            enable_whatsapp=enable_whatsapp,
+            enable_telegram=enable_telegram,
         )
         if status.get("running"):
             result = api_post(
@@ -286,8 +287,7 @@ elif page == "Settings":
                     "frame_consistency": int(frame_consistency),
                     "negative_release_frames": int(negative_release_frames),
                     "cooldown_seconds": int(cooldown),
-                    "enable_email": enable_email,
-                    "enable_whatsapp": enable_whatsapp,
+                    "enable_telegram": enable_telegram,
                 },
             )
             st.error(result["error"]) if result.get("error") else st.success("Settings applied to the running pipeline.")
