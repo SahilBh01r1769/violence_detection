@@ -111,10 +111,50 @@ def test_export_trace_records_replayable_frame_decisions(tmp_path: Path):
         "True",
         "True",
     ]
+    assert {row["capture_confidence_floor"] for row in rows} == {"0.250000"}
     assert summary.frames == 3
     assert summary.positive_frames == 2
     assert summary.source_fps == 2.0
+    assert summary.capture_confidence_floor == 0.25
     assert capture.released
+
+
+def test_export_trace_passes_capture_floor_to_real_detector(
+    monkeypatch, tmp_path: Path
+):
+    capture = FakeCapture(frame_count=0)
+    captured = {}
+
+    class RecordingDetector:
+        def __init__(self, model_path, confidence, frame_consistency):
+            captured.update(
+                model_path=model_path,
+                confidence=confidence,
+                frame_consistency=frame_consistency,
+            )
+
+    monkeypatch.setattr("evaluation.capture_trace.ViolenceDetector", RecordingDetector)
+
+    export_trace(
+        Path("sample.mp4"),
+        tmp_path / "trace.csv",
+        [],
+        capture_confidence_floor=0.4,
+        capture_factory=lambda _path: capture,
+    )
+
+    assert captured["confidence"] == 0.4
+    assert captured["frame_consistency"] == 1
+
+
+def test_export_trace_rejects_invalid_capture_floor(tmp_path: Path):
+    with pytest.raises(ValueError, match="capture_confidence_floor"):
+        export_trace(
+            Path("sample.mp4"),
+            tmp_path / "trace.csv",
+            [],
+            capture_confidence_floor=-0.1,
+        )
 
 
 def test_export_trace_rejects_invalid_source_fps(tmp_path: Path):

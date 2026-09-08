@@ -12,8 +12,11 @@ from typing import Callable, Iterable, Protocol, Sequence
 
 import cv2
 
-from config import CONFIDENCE_THRESHOLD, MODEL_PATH
+from config import MODEL_PATH
 from core.detector import DetectionResult, ViolenceDetector
+
+
+DEFAULT_CAPTURE_CONFIDENCE_FLOOR = 0.25
 
 
 @dataclass(frozen=True)
@@ -28,6 +31,7 @@ class TraceSummary:
     positive_frames: int
     source_fps: float
     duration_seconds: float
+    capture_confidence_floor: float
     output_path: str
 
 
@@ -67,15 +71,18 @@ def export_trace(
     output_path: Path,
     ground_truth: Sequence[TimeInterval],
     *,
-    confidence: float = CONFIDENCE_THRESHOLD,
+    capture_confidence_floor: float = DEFAULT_CAPTURE_CONFIDENCE_FLOOR,
     detector: FrameDetector | None = None,
     capture_factory: Callable[[str], object] = cv2.VideoCapture,
 ) -> TraceSummary:
     """Export detector decisions using half-open ground-truth intervals.
 
     ``confidence`` in the output is the strongest violent-class detection on the
-    frame. It is zero when the detector finds no violent-class box.
+    frame. It is zero when the detector finds no violent-class box above the
+    capture floor. Replay thresholds below that floor are therefore invalid.
     """
+    if not 0.0 <= capture_confidence_floor <= 1.0:
+        raise ValueError("capture_confidence_floor must be between 0 and 1")
     capture = capture_factory(str(video_path))
     if not capture.isOpened():
         capture.release()
@@ -88,7 +95,7 @@ def export_trace(
 
     frame_detector = detector or ViolenceDetector(
         MODEL_PATH,
-        confidence=confidence,
+        confidence=capture_confidence_floor,
         frame_consistency=1,
     )
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -106,6 +113,7 @@ def export_trace(
                     "is_violent",
                     "confidence",
                     "ground_truth_violent",
+                    "capture_confidence_floor",
                 ],
             )
             writer.writeheader()
@@ -134,6 +142,9 @@ def export_trace(
                         "ground_truth_violent": is_ground_truth_violent(
                             timestamp, ground_truth
                         ),
+                        "capture_confidence_floor": (
+                            f"{capture_confidence_floor:.6f}"
+                        ),
                     }
                 )
         partial_path.replace(output_path)
@@ -148,6 +159,7 @@ def export_trace(
         positive_frames=positive_frames,
         source_fps=round(fps, 4),
         duration_seconds=round(frame_count / fps, 4),
+        capture_confidence_floor=capture_confidence_floor,
         output_path=str(output_path),
     )
 
@@ -166,14 +178,22 @@ def main() -> None:
         metavar="START:END",
         help="violent interval in seconds; repeat for separate events",
     )
-    parser.add_argument("--confidence", type=float, default=CONFIDENCE_THRESHOLD)
+    parser.add_argument(
+        "--capture-confidence-floor",
+        type=float,
+        default=DEFAULT_CAPTURE_CONFIDENCE_FLOOR,
+        help=(
+            "lowest violent-box confidence retained during inference; replay "
+            "thresholds must be at least this value"
+        ),
+    )
     args = parser.parse_args()
 
     summary = export_trace(
         args.video,
         args.output,
         args.ground_truth,
-        confidence=args.confidence,
+        capture_confidence_floor=args.capture_confidence_floor,
     )
     print(json.dumps(asdict(summary), indent=2))
 

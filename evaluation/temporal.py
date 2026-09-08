@@ -24,11 +24,13 @@ class FrameObservation:
     is_violent: bool
     confidence: float
     ground_truth_violent: bool
+    capture_confidence_floor: float | None = None
 
 
 @dataclass(frozen=True)
 class ThresholdMetrics:
-    threshold: int
+    confidence_threshold: float | None
+    positive_frames: int
     negative_release_frames: int
     total_triggers: int
     false_triggers: int
@@ -76,6 +78,11 @@ def load_trace(path: Path) -> list[FrameObservation]:
                 is_violent=_as_bool(row["is_violent"]),
                 confidence=float(row["confidence"]),
                 ground_truth_violent=_as_bool(row["ground_truth_violent"]),
+                capture_confidence_floor=(
+                    float(row["capture_confidence_floor"])
+                    if row.get("capture_confidence_floor")
+                    else None
+                ),
             )
             for row in reader
         ]
@@ -85,7 +92,28 @@ def replay_temporal_filter(
     observations: Sequence[FrameObservation],
     threshold: int,
     negative_release_frames: int = 1,
+    detector_confidence: float | None = None,
 ) -> TemporalReplay:
+    if detector_confidence is not None:
+        if not 0.0 <= detector_confidence <= 1.0:
+            raise ValueError("detector_confidence must be between 0 and 1")
+        capture_floors = {
+            observation.capture_confidence_floor
+            for observation in observations
+        }
+        if None in capture_floors:
+            raise ValueError(
+                "confidence replay requires a trace with capture_confidence_floor"
+            )
+        if len(capture_floors) > 1:
+            raise ValueError("trace contains inconsistent capture confidence floors")
+        highest_capture_floor = max(capture_floors, default=0.0)
+        if detector_confidence < highest_capture_floor:
+            raise ValueError(
+                "detector_confidence cannot be below the trace capture floor "
+                f"({highest_capture_floor:g})"
+            )
+
     temporal_filter = TemporalEventFilter(threshold, negative_release_frames)
     triggers: list[int] = []
     active_intervals: list[tuple[int, int]] = []
@@ -94,19 +122,27 @@ def replay_temporal_filter(
     first_negative_timestamp: float | None = None
 
     for index, observation in enumerate(observations):
+        is_positive = (
+            observation.is_violent
+            if detector_confidence is None
+            else (
+                observation.is_violent
+                and observation.confidence >= detector_confidence
+            )
+        )
         was_active = temporal_filter.event_active
-        if was_active and not observation.is_violent:
+        if was_active and not is_positive:
             first_negative_timestamp = (
                 observation.timestamp_seconds
                 if first_negative_timestamp is None
                 else first_negative_timestamp
             )
 
-        decision = temporal_filter.update(observation.is_violent)
+        decision = temporal_filter.update(is_positive)
         if decision.triggered:
             triggers.append(index)
             event_start = index
-        if decision.event_active and observation.is_violent:
+        if decision.event_active and is_positive:
             first_negative_timestamp = None
         if decision.released and event_start is not None:
             active_intervals.append((event_start, index - 1))
@@ -131,12 +167,14 @@ def trigger_indices(
     observations: Sequence[FrameObservation],
     threshold: int,
     negative_release_frames: int = 1,
+    detector_confidence: float | None = None,
 ) -> list[int]:
     return list(
         replay_temporal_filter(
             observations,
             threshold,
             negative_release_frames,
+            detector_confidence,
         ).trigger_indices
     )
 
@@ -161,11 +199,13 @@ def evaluate_threshold(
     observations: Sequence[FrameObservation],
     threshold: int,
     negative_release_frames: int = 1,
+    detector_confidence: float | None = None,
 ) -> ThresholdMetrics:
     replay = replay_temporal_filter(
         observations,
         threshold,
         negative_release_frames,
+        detector_confidence,
     )
     triggers = replay.trigger_indices
     events = ground_truth_events(observations)
@@ -200,7 +240,8 @@ def evaluate_threshold(
     )
 
     return ThresholdMetrics(
-        threshold=threshold,
+        confidence_threshold=detector_confidence,
+        positive_frames=threshold,
         negative_release_frames=negative_release_frames,
         total_triggers=len(triggers),
         false_triggers=false_triggers,
@@ -221,9 +262,15 @@ def compare_thresholds(
     observations: Sequence[FrameObservation],
     thresholds: Iterable[int],
     negative_release_frames: int = 1,
+    detector_confidence: float | None = None,
 ) -> list[ThresholdMetrics]:
     return [
-        evaluate_threshold(observations, value, negative_release_frames)
+        evaluate_threshold(
+            observations,
+            value,
+            negative_release_frames,
+            detector_confidence,
+        )
         for value in thresholds
     ]
 
@@ -232,12 +279,39 @@ def compare_temporal_settings(
     observations: Sequence[FrameObservation],
     thresholds: Iterable[int],
     negative_release_values: Iterable[int],
+    detector_confidence: float | None = None,
 ) -> list[ThresholdMetrics]:
     threshold_values = tuple(thresholds)
     return [
-        evaluate_threshold(observations, threshold, negative_release_frames)
+        evaluate_threshold(
+            observations,
+            threshold,
+            negative_release_frames,
+            detector_confidence,
+        )
         for negative_release_frames in negative_release_values
         for threshold in threshold_values
+    ]
+
+
+def compare_operating_points(
+    observations: Sequence[FrameObservation],
+    confidence_thresholds: Iterable[float],
+    positive_frame_values: Iterable[int],
+    negative_release_values: Iterable[int],
+) -> list[ThresholdMetrics]:
+    positive_values = tuple(positive_frame_values)
+    negative_values = tuple(negative_release_values)
+    return [
+        evaluate_threshold(
+            observations,
+            positive_frames,
+            negative_release_frames,
+            confidence_threshold,
+        )
+        for confidence_threshold in confidence_thresholds
+        for negative_release_frames in negative_values
+        for positive_frames in positive_values
     ]
 
 
@@ -252,6 +326,13 @@ def main() -> None:
         default="1,3",
         help="comma-separated negative-frame release values",
     )
+    parser.add_argument(
+        "--confidence-thresholds",
+        help=(
+            "optional comma-separated detector confidence thresholds; requires "
+            "a trace containing capture_confidence_floor"
+        ),
+    )
     parser.add_argument("--output", type=Path)
     args = parser.parse_args()
 
@@ -259,11 +340,23 @@ def main() -> None:
     negative_release_values = [
         int(value) for value in args.negative_release_frames.split(",")
     ]
-    results = compare_temporal_settings(
-        load_trace(args.trace),
-        thresholds,
-        negative_release_values,
-    )
+    observations = load_trace(args.trace)
+    if args.confidence_thresholds:
+        confidence_thresholds = [
+            float(value) for value in args.confidence_thresholds.split(",")
+        ]
+        results = compare_operating_points(
+            observations,
+            confidence_thresholds,
+            thresholds,
+            negative_release_values,
+        )
+    else:
+        results = compare_temporal_settings(
+            observations,
+            thresholds,
+            negative_release_values,
+        )
     rendered = json.dumps([asdict(result) for result in results], indent=2)
     if args.output:
         args.output.write_text(rendered + "\n", encoding="utf-8")

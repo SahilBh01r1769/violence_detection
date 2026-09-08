@@ -2,6 +2,7 @@ import pytest
 
 from evaluation.temporal import (
     FrameObservation,
+    compare_operating_points,
     compare_temporal_settings,
     compare_thresholds,
     evaluate_threshold,
@@ -17,6 +18,7 @@ def observations(predictions, truth, fps=10):
             is_violent=prediction,
             confidence=0.8 if prediction else 0.1,
             ground_truth_violent=actual,
+            capture_confidence_floor=0.1,
         )
         for index, (prediction, actual) in enumerate(zip(predictions, truth))
     ]
@@ -120,3 +122,55 @@ def test_release_comparison_marks_ground_truth_events_merged_by_active_run():
     assert one_negative.merged_ground_truth_events == 0
     assert three_negative.total_triggers == 1
     assert three_negative.merged_ground_truth_events == 1
+
+
+def test_confidence_and_temporal_grid_reuses_recorded_scores():
+    trace = [
+        FrameObservation(1, 0.0, True, 0.45, False, 0.25),
+        FrameObservation(2, 0.1, True, 0.58, False, 0.25),
+        FrameObservation(3, 0.2, True, 0.59, False, 0.25),
+        FrameObservation(4, 0.3, True, 0.82, True, 0.25),
+        FrameObservation(5, 0.4, True, 0.84, True, 0.25),
+        FrameObservation(6, 0.5, True, 0.86, True, 0.25),
+    ]
+
+    results = compare_operating_points(trace, [0.55, 0.8], [1, 3], [1])
+
+    assert len(results) == 4
+    low_one, low_three, high_one, high_three = results
+    assert low_one.confidence_threshold == 0.55
+    assert low_one.positive_frames == 1
+    assert low_one.false_triggers == 1
+    assert low_three.false_triggers == 0
+    assert high_one.detected_events == 1
+    assert high_three.mean_alert_delay_seconds == 0.2
+
+
+def test_confidence_replay_rejects_threshold_below_capture_floor():
+    trace = [FrameObservation(1, 0.0, True, 0.4, False, 0.25)]
+
+    with pytest.raises(ValueError, match="below the trace capture floor"):
+        trigger_indices(trace, 1, detector_confidence=0.2)
+
+
+def test_confidence_replay_rejects_legacy_trace_without_capture_floor():
+    trace = [FrameObservation(1, 0.0, True, 0.8, False)]
+
+    with pytest.raises(ValueError, match="capture_confidence_floor"):
+        trigger_indices(trace, 1, detector_confidence=0.55)
+
+
+def test_zero_confidence_without_a_detection_is_not_positive():
+    trace = [FrameObservation(1, 0.0, False, 0.0, False, 0.0)]
+
+    assert trigger_indices(trace, 1, detector_confidence=0.0) == []
+
+
+def test_confidence_replay_rejects_inconsistent_capture_floors():
+    trace = [
+        FrameObservation(1, 0.0, True, 0.5, False, 0.2),
+        FrameObservation(2, 0.1, True, 0.5, False, 0.25),
+    ]
+
+    with pytest.raises(ValueError, match="inconsistent"):
+        trigger_indices(trace, 1, detector_confidence=0.55)
