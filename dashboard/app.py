@@ -235,11 +235,17 @@ with st.sidebar:
                 "/pipeline/start",
                 start_payload(str(selected_source)),
             )
-            st.error(result["error"]) if result.get("error") else st.success(result.get("message", "Pipeline started"))
+            if result.get("error"):
+                st.error(result["error"])
+            else:
+                st.success(result.get("message", "Pipeline started"))
     with c2:
         if st.button("Stop", use_container_width=True):
             result = api_post("/pipeline/stop")
-            st.error(result["error"]) if result.get("error") else st.info(result.get("message", "Pipeline stopped"))
+            if result.get("error"):
+                st.error(result["error"])
+            else:
+                st.info(result.get("message", "Pipeline stopped"))
     status = api_get("/status", {}) or {}
     st.caption("ACTIVE" if status.get("running") else "OFFLINE")
     st.caption(f"API: {API_BASE}")
@@ -394,7 +400,10 @@ elif page == "Settings":
                     "enable_telegram": enable_telegram,
                 },
             )
-            st.error(result["error"]) if result.get("error") else st.success("Settings applied to the running pipeline.")
+            if result.get("error"):
+                st.error(result["error"])
+            else:
+                st.success("Settings applied to the running pipeline.")
         else:
             st.success("Settings saved. They will be used the next time the pipeline starts.")
     st.caption(
