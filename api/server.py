@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import logging
 import threading
 import time
@@ -15,8 +14,15 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel, Field
 
-from alerts.alert_manager import ALERT_LOG_FILE, AlertRecord
-from config import ALERT_COOLDOWN_SECONDS, CONFIDENCE_THRESHOLD, ENABLE_EMAIL_ALERTS, ENABLE_WHATSAPP_ALERTS, FRAME_CONSISTENCY, VIDEO_SOURCE
+from alerts.alert_manager import load_event_history
+from config import (
+    ALERT_COOLDOWN_SECONDS,
+    CONFIDENCE_THRESHOLD,
+    ENABLE_TELEGRAM_ALERTS,
+    FRAME_CONSISTENCY,
+    NEGATIVE_RELEASE_FRAMES,
+    VIDEO_SOURCE,
+)
 from core.pipeline import DetectionPipeline
 
 logger = logging.getLogger(__name__)
@@ -32,13 +38,10 @@ _pipeline_lock = threading.Lock()
 def _history_records():
     if _pipeline is not None:
         return _pipeline.alert_manager.history
-    if not ALERT_LOG_FILE.exists():
-        return []
     try:
-        data = json.loads(ALERT_LOG_FILE.read_text(encoding="utf-8"))
-        return list(reversed([AlertRecord(**record) for record in data]))
+        return list(reversed(load_event_history()))
     except Exception as exc:
-        logger.warning("Could not read persisted alert history: %s", exc)
+        logger.warning("Could not read persisted event history: %s", exc)
         return []
 
 
@@ -54,6 +57,20 @@ def _frame_callback(annotated_frame, _result):
         _latest_frame = annotated_frame.copy()
 
 
+def _latest_notification(history):
+    if not history:
+        return None
+    alert = history[0]
+    return {
+        "id": alert.id,
+        "status": alert.notification_status,
+        "channel": alert.notification_channel,
+        "completed_at": alert.notification_completed_at,
+        "error": alert.notification_error,
+        "suppression_reason": alert.notification_suppression_reason,
+    }
+
+
 @app.get("/health")
 def health():
     return {"status": "ok", "timestamp": time.time()}
@@ -61,9 +78,38 @@ def health():
 
 @app.get("/status")
 def status():
+    history = _history_records()
     if _pipeline is None:
-        return {"running": False, "alert_history_count": len(_history_records())}
-    return {"running": _pipeline._running, "frames_processed": _pipeline.frames_processed, "alerts_fired": _pipeline.alerts_fired, "uptime_seconds": round(_pipeline.uptime, 1), "fps": round(_pipeline.fps, 2), "alert_history_count": len(_pipeline.alert_manager.history), "cooldown_remaining": round(_pipeline.alert_manager.seconds_until_next_alert, 1), "cooldown_seconds": _pipeline.alert_manager.cooldown, "confidence": _pipeline.detector.confidence, "frame_consistency": _pipeline.detector.frame_consistency, "email_enabled": _pipeline.alert_manager.enable_email, "whatsapp_enabled": _pipeline.alert_manager.enable_whatsapp}
+        return {
+            "running": False,
+            "source_state": "idle",
+            "last_error": None,
+            "latest_notification": _latest_notification(history),
+            "event_history_count": len(history),
+        }
+    return {
+        "running": _pipeline._running,
+        "source_state": _pipeline.source_state,
+        "last_error": _pipeline.last_error.as_dict() if _pipeline.last_error else None,
+        "latest_notification": _latest_notification(history),
+        "frames_processed": _pipeline.frames_processed,
+        "events_recorded": _pipeline.events_recorded,
+        "notifications_accepted": _pipeline.alert_manager.accepted_notifications,
+        "uptime_seconds": round(_pipeline.uptime, 1),
+        "fps": round(_pipeline.fps, 2),
+        "event_history_count": len(history),
+        "cooldown_remaining": round(_pipeline.alert_manager.seconds_until_next_alert, 1),
+        "cooldown_seconds": _pipeline.alert_manager.cooldown,
+        "confidence": _pipeline.detector.confidence,
+        "frame_consistency": _pipeline.detector.frame_consistency,
+        "negative_release_frames": _pipeline.detector.negative_release_frames,
+        "event_active": _pipeline.detector.event_active,
+        "telegram_enabled": _pipeline.alert_manager.enable_telegram,
+        "telegram_configured": bool(
+            _pipeline.alert_manager.telegram_bot_token
+            and _pipeline.alert_manager.telegram_chat_id
+        ),
+    }
 
 
 @app.get("/alerts")
@@ -91,9 +137,9 @@ class PipelineStartRequest(BaseModel):
     location: str = "Camera-01"
     confidence: float = Field(CONFIDENCE_THRESHOLD, ge=0.0, le=1.0)
     frame_consistency: int = Field(FRAME_CONSISTENCY, ge=1, le=120)
+    negative_release_frames: int = Field(NEGATIVE_RELEASE_FRAMES, ge=1, le=120)
     cooldown_seconds: int = Field(ALERT_COOLDOWN_SECONDS, ge=0, le=86400)
-    enable_email: bool = ENABLE_EMAIL_ALERTS
-    enable_whatsapp: bool = ENABLE_WHATSAPP_ALERTS
+    enable_telegram: bool = ENABLE_TELEGRAM_ALERTS
 
 
 @app.post("/pipeline/start")
@@ -109,7 +155,16 @@ def start_pipeline(req: PipelineStartRequest):
         _clear_latest_frame()
         source = int(req.source) if req.source.isdigit() else req.source
         try:
-            _pipeline = DetectionPipeline(on_frame=_frame_callback, location=req.location, show_window=False, confidence=req.confidence, frame_consistency=req.frame_consistency, cooldown_seconds=req.cooldown_seconds, enable_email=req.enable_email, enable_whatsapp=req.enable_whatsapp)
+            _pipeline = DetectionPipeline(
+                on_frame=_frame_callback,
+                location=req.location,
+                show_window=False,
+                confidence=req.confidence,
+                frame_consistency=req.frame_consistency,
+                negative_release_frames=req.negative_release_frames,
+                cooldown_seconds=req.cooldown_seconds,
+                enable_telegram=req.enable_telegram,
+            )
         except Exception as exc:
             logger.exception("Could not initialise pipeline")
             raise HTTPException(500, f"Could not initialise pipeline: {exc}") from exc
@@ -133,9 +188,9 @@ def stop_pipeline():
 class PipelineConfigRequest(BaseModel):
     confidence: Optional[float] = Field(None, ge=0.0, le=1.0)
     frame_consistency: Optional[int] = Field(None, ge=1, le=120)
+    negative_release_frames: Optional[int] = Field(None, ge=1, le=120)
     cooldown_seconds: Optional[int] = Field(None, ge=0, le=86400)
-    enable_email: Optional[bool] = None
-    enable_whatsapp: Optional[bool] = None
+    enable_telegram: Optional[bool] = None
 
 
 @app.post("/pipeline/config")
@@ -146,12 +201,12 @@ def update_config(req: PipelineConfigRequest):
         _pipeline.detector.confidence = req.confidence
     if req.frame_consistency is not None:
         _pipeline.detector.set_frame_consistency(req.frame_consistency)
+    if req.negative_release_frames is not None:
+        _pipeline.detector.set_negative_release_frames(req.negative_release_frames)
     if req.cooldown_seconds is not None:
         _pipeline.alert_manager.cooldown = req.cooldown_seconds
-    if req.enable_email is not None:
-        _pipeline.alert_manager.enable_email = req.enable_email
-    if req.enable_whatsapp is not None:
-        _pipeline.alert_manager.enable_whatsapp = req.enable_whatsapp
+    if req.enable_telegram is not None:
+        _pipeline.alert_manager.enable_telegram = req.enable_telegram
     return {"message": "Config updated", "applied": req.model_dump(exclude_none=True)}
 
 

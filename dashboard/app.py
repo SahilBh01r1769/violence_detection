@@ -1,21 +1,38 @@
-"""Streamlit dashboard for live monitoring, alert history, analytics and settings."""
+"""Thin Streamlit view for pipeline control, diagnostics, and event history."""
 
 from __future__ import annotations
 
 import base64
+import csv
+import io
 import os
+import sys
 import time
 from pathlib import Path
 
-import pandas as pd
-import plotly.express as px
 import requests
 import streamlit as st
 
-from config import ALERT_COOLDOWN_SECONDS, CONFIDENCE_THRESHOLD, ENABLE_EMAIL_ALERTS, ENABLE_WHATSAPP_ALERTS, FRAME_CONSISTENCY, VIDEO_SOURCE
+# Keep the repository's config.py ahead of an unrelated installed config package
+# when the dashboard is started through the Streamlit console script.
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+try:
+    sys.path.remove(str(PROJECT_ROOT))
+except ValueError:
+    pass
+sys.path.insert(0, str(PROJECT_ROOT))
+
+from config import (
+    ALERT_COOLDOWN_SECONDS,
+    CONFIDENCE_THRESHOLD,
+    ENABLE_TELEGRAM_ALERTS,
+    FRAME_CONSISTENCY,
+    NEGATIVE_RELEASE_FRAMES,
+)
+from dashboard.video_input import persist_uploaded_video
 
 API_BASE = os.getenv("API_BASE", "http://localhost:8000")
-st.set_page_config(page_title="Violence Detection System", layout="wide")
+st.set_page_config(page_title="Temporal Violence Events", layout="wide")
 
 st.markdown(
     """
@@ -73,9 +90,6 @@ h1, h2, h3 { color: var(--ink) !important; letter-spacing: -0.02em; }
     unsafe_allow_html=True,
 )
 
-PLOT_COLORS = ["#50616d", "#82503a", "#5f6d59", "#756552"]
-
-
 def loading_placeholder(tall: bool = False):
     slot = st.empty()
     slot.markdown(f'<div class="skeleton{" tall" if tall else ""}"></div>', unsafe_allow_html=True)
@@ -109,7 +123,7 @@ def live_frame_b64() -> str | None:
         return None
 
 
-def load_alert_history() -> pd.DataFrame:
+def load_event_history() -> list[dict]:
     alerts = []
     page = 1
     while True:
@@ -119,53 +133,130 @@ def load_alert_history() -> pd.DataFrame:
         if page >= pages:
             break
         page += 1
-    if not alerts:
-        return pd.DataFrame()
-    frame = pd.DataFrame(alerts)
-    frame["timestamp"] = pd.to_datetime(frame["timestamp"], errors="coerce")
-    return frame
+    return alerts
+
+
+def events_as_csv(events: list[dict]) -> str:
+    if not events:
+        return ""
+    fieldnames = [key for key in events[0] if key != "screenshot_path"]
+    output = io.StringIO(newline="")
+    writer = csv.DictWriter(output, fieldnames=fieldnames, extrasaction="ignore")
+    writer.writeheader()
+    writer.writerows(events)
+    return output.getvalue()
+
+
+def event_screenshot(event_id: int) -> bytes | None:
+    try:
+        response = requests.get(
+            f"{API_BASE}/alerts/{event_id}/screenshot",
+            timeout=3,
+        )
+        response.raise_for_status()
+        return response.content
+    except Exception:
+        return None
 
 
 def setting(name: str, default):
     return st.session_state.get(name, default)
 
 
-def start_payload() -> dict:
+def start_payload(source: str) -> dict:
     return {
-        "source": str(setting("video_source", VIDEO_SOURCE)),
+        "source": source,
         "location": setting("location", "Camera-01"),
         "confidence": float(setting("confidence", CONFIDENCE_THRESHOLD)),
         "frame_consistency": int(setting("frame_consistency", FRAME_CONSISTENCY)),
+        "negative_release_frames": int(
+            setting("negative_release_frames", NEGATIVE_RELEASE_FRAMES)
+        ),
         "cooldown_seconds": int(setting("cooldown", ALERT_COOLDOWN_SECONDS)),
-        "enable_email": bool(setting("enable_email", ENABLE_EMAIL_ALERTS)),
-        "enable_whatsapp": bool(setting("enable_whatsapp", ENABLE_WHATSAPP_ALERTS)),
+        "enable_telegram": bool(
+            setting("enable_telegram", ENABLE_TELEGRAM_ALERTS)
+        ),
     }
 
 
 with st.sidebar:
-    st.title("Violence Detection")
-    page = st.radio("Navigation", ["Live Monitor", "Alert History", "Analytics", "Settings"])
+    st.title("Temporal Violence Events")
+    page = st.radio("Navigation", ["Pipeline", "Event History", "Settings"])
+    st.subheader("Input")
+    source_kind = st.selectbox(
+        "Source type",
+        ["Upload video", "Local video path", "Webcam", "RTSP"],
+    )
+    source_ready = True
+    if source_kind == "Upload video":
+        upload = st.file_uploader(
+            "Video file",
+            type=["avi", "mkv", "mov", "mp4", "webm"],
+        )
+        if upload is None:
+            selected_source = ""
+            source_ready = False
+            st.caption("Choose a video before starting.")
+        else:
+            try:
+                selected_source = str(
+                    persist_uploaded_video(upload.name, upload.getvalue())
+                )
+                st.caption(f"Ready: {Path(selected_source).name}")
+            except (OSError, ValueError) as exc:
+                selected_source = ""
+                source_ready = False
+                st.error(str(exc))
+    elif source_kind == "Local video path":
+        selected_source = st.text_input(
+            "Local path",
+            value="sample_videos/nonviolence.mp4",
+            key="local_video_path",
+        )
+        source_ready = bool(selected_source.strip())
+    elif source_kind == "Webcam":
+        selected_source = str(
+            st.number_input("Camera index", min_value=0, value=0, step=1)
+        )
+    else:
+        selected_source = st.text_input("RTSP URL", key="rtsp_url")
+        source_ready = bool(selected_source.strip())
+
     st.divider()
     c1, c2 = st.columns(2)
     with c1:
-        if st.button("Start", type="primary", use_container_width=True):
-            result = api_post("/pipeline/start", start_payload())
-            st.error(result["error"]) if result.get("error") else st.success(result.get("message", "Pipeline started"))
+        if st.button(
+            "Start",
+            type="primary",
+            use_container_width=True,
+            disabled=not source_ready,
+        ):
+            result = api_post(
+                "/pipeline/start",
+                start_payload(str(selected_source)),
+            )
+            if result.get("error"):
+                st.error(result["error"])
+            else:
+                st.success(result.get("message", "Pipeline started"))
     with c2:
         if st.button("Stop", use_container_width=True):
             result = api_post("/pipeline/stop")
-            st.error(result["error"]) if result.get("error") else st.info(result.get("message", "Pipeline stopped"))
+            if result.get("error"):
+                st.error(result["error"])
+            else:
+                st.info(result.get("message", "Pipeline stopped"))
     status = api_get("/status", {}) or {}
     st.caption("ACTIVE" if status.get("running") else "OFFLINE")
     st.caption(f"API: {API_BASE}")
 
-if page == "Live Monitor":
-    st.header("Live Monitor")
+if page == "Pipeline":
+    st.header("Pipeline")
     status = api_get("/status", {}) or {}
     m1, m2, m3, m4 = st.columns(4)
-    m1.metric("Status", "Active" if status.get("running") else "Offline")
+    m1.metric("Source", str(status.get("source_state", "idle")).title())
     m2.metric("Frames", f"{status.get('frames_processed', 0):,}")
-    m3.metric("Alerts", status.get("alerts_fired", 0))
+    m3.metric("Event history", status.get("event_history_count", 0))
     m4.metric("FPS", f"{status.get('fps', 0):.1f}")
 
     frame_loading = loading_placeholder(tall=True)
@@ -179,62 +270,96 @@ if page == "Live Monitor":
     else:
         st.info("No frame available. Start the API and pipeline first.")
 
+    runtime_error = status.get("last_error")
+    if runtime_error:
+        st.error(
+            f"{runtime_error.get('stage', 'pipeline').title()} failure: "
+            f"{runtime_error.get('message', 'unknown error')}"
+        )
+
+    latest_notification = status.get("latest_notification")
+    if latest_notification:
+        notification_text = (
+            f"Telegram: {latest_notification.get('status', 'unknown')}"
+        )
+        if latest_notification.get("error"):
+            notification_text += f" — {latest_notification['error']}"
+        st.write(notification_text)
+        st.caption(
+            "Accepted means Telegram accepted the submission; it does not "
+            "establish that a person read it."
+        )
+
     st.write(
         f"Cooldown remaining: **{status.get('cooldown_remaining', 0):.0f}s** | "
         f"Confidence: **{status.get('confidence', setting('confidence', CONFIDENCE_THRESHOLD)):.2f}** | "
-        f"Frame consistency: **{status.get('frame_consistency', setting('frame_consistency', FRAME_CONSISTENCY))}**"
+        f"Positive qualification: **{status.get('frame_consistency', setting('frame_consistency', FRAME_CONSISTENCY))} frames** | "
+        f"Negative release: **{status.get('negative_release_frames', setting('negative_release_frames', NEGATIVE_RELEASE_FRAMES))} frames** | "
+        f"Event active: **{'yes' if status.get('event_active') else 'no'}**"
     )
-    if st.checkbox("Auto-refresh every second", value=True):
+    if st.checkbox("Refresh frame and status every second", value=False):
         time.sleep(1)
         st.rerun()
 
-elif page == "Alert History":
-    st.header("Alert History")
+elif page == "Event History":
+    st.header("Event History")
     loading = loading_placeholder(tall=True)
-    df = load_alert_history()
+    events = load_event_history()
     loading.empty()
-    if df.empty:
-        st.info("No alert records available yet.")
+    if not events:
+        st.info("No event records available yet.")
     else:
-        classes = ["All"] + sorted(df["detected_class"].dropna().unique().tolist())
+        classes = ["All"] + sorted(
+            {
+                event.get("detected_class")
+                for event in events
+                if event.get("detected_class")
+            }
+        )
         c1, c2 = st.columns(2)
         class_filter = c1.selectbox("Class", classes)
-        min_confidence = c2.slider("Minimum confidence", 0.0, 1.0, 0.0, 0.05)
-        filtered = df[df["confidence"] >= min_confidence].copy()
-        if class_filter != "All":
-            filtered = filtered[filtered["detected_class"] == class_filter]
-        st.dataframe(filtered.drop(columns=["screenshot_path"], errors="ignore"), use_container_width=True, hide_index=True)
-        st.download_button("Export CSV", filtered.drop(columns=["screenshot_path"], errors="ignore").to_csv(index=False), file_name="alert_history.csv", mime="text/csv")
+        min_confidence = c2.slider(
+            "Minimum confidence",
+            0.0,
+            1.0,
+            0.0,
+            0.05,
+        )
+        filtered = [
+            event
+            for event in events
+            if float(event.get("confidence", 0.0)) >= min_confidence
+            and (
+                class_filter == "All"
+                or event.get("detected_class") == class_filter
+            )
+        ]
+        displayed = [
+            {
+                key: value
+                for key, value in event.items()
+                if key != "screenshot_path"
+            }
+            for event in filtered
+        ]
+        st.dataframe(displayed, use_container_width=True, hide_index=True)
+        st.download_button(
+            "Export CSV",
+            events_as_csv(filtered),
+            file_name="event_history.csv",
+            mime="text/csv",
+        )
         st.subheader("Screenshots")
-        for _, row in filtered.head(20).iterrows():
-            path_value = row.get("screenshot_path")
-            if path_value and Path(str(path_value)).exists():
-                st.image(str(path_value), caption=f"Alert #{int(row['id'])}: {row['detected_class']}")
-
-elif page == "Analytics":
-    st.header("Analytics")
-    loading = loading_placeholder(tall=True)
-    df = load_alert_history()
-    loading.empty()
-    if df.empty:
-        st.info("Analytics will appear after alerts are recorded.")
-    else:
-        a, b = st.columns(2)
-        a.metric("Total alerts", len(df))
-        b.metric("Average confidence", f"{df['confidence'].mean():.1%}")
-        st.metric("Most common class", df["detected_class"].mode().iloc[0])
-
-        class_counts = df["detected_class"].value_counts().rename_axis("class").reset_index(name="count")
-        fig_bar = px.bar(class_counts, x="class", y="count", title="Alerts by class", color_discrete_sequence=[PLOT_COLORS[1]])
-        fig_hist = px.histogram(df, x="confidence", nbins=20, title="Confidence distribution", color_discrete_sequence=[PLOT_COLORS[0]])
-        st.plotly_chart(fig_bar, use_container_width=True)
-        st.plotly_chart(fig_hist, use_container_width=True)
-        timeline = df.dropna(subset=["timestamp"]).copy()
-        if not timeline.empty:
-            timeline["hour"] = timeline["timestamp"].dt.floor("h")
-            counts = timeline.groupby("hour").size().reset_index(name="count")
-            fig_line = px.line(counts, x="hour", y="count", markers=True, title="Alerts over time", color_discrete_sequence=[PLOT_COLORS[0]])
-            st.plotly_chart(fig_line, use_container_width=True)
+        for event in filtered[:20]:
+            screenshot = event_screenshot(int(event["id"]))
+            if screenshot:
+                st.image(
+                    screenshot,
+                    caption=(
+                        f"Event #{event['id']}: "
+                        f"{event.get('detected_class', 'unknown')}"
+                    ),
+                )
 
 elif page == "Settings":
     st.header("Settings")
@@ -242,21 +367,27 @@ elif page == "Settings":
     with st.form("settings"):
         confidence = st.slider("Confidence threshold", 0.05, 1.0, float(setting("confidence", CONFIDENCE_THRESHOLD)), 0.05)
         frame_consistency = st.number_input("Consecutive violent frames required", 1, 120, int(setting("frame_consistency", FRAME_CONSISTENCY)))
+        negative_release_frames = st.number_input(
+            "Consecutive negative frames to end an event",
+            1,
+            120,
+            int(setting("negative_release_frames", NEGATIVE_RELEASE_FRAMES)),
+        )
         cooldown = st.number_input("Alert cooldown (seconds)", 0, 86400, int(setting("cooldown", ALERT_COOLDOWN_SECONDS)))
         location = st.text_input("Camera/location label", setting("location", "Camera-01"))
-        video_source = st.text_input("Video source", str(setting("video_source", VIDEO_SOURCE)))
-        enable_email = st.checkbox("Enable Email alerts", value=bool(setting("enable_email", ENABLE_EMAIL_ALERTS)))
-        enable_whatsapp = st.checkbox("Enable WhatsApp alerts", value=bool(setting("enable_whatsapp", ENABLE_WHATSAPP_ALERTS)))
+        enable_telegram = st.checkbox(
+            "Enable Telegram notifications",
+            value=bool(setting("enable_telegram", ENABLE_TELEGRAM_ALERTS)),
+        )
         submitted = st.form_submit_button("Save and Apply")
     if submitted:
         st.session_state.update(
             confidence=confidence,
             frame_consistency=int(frame_consistency),
+            negative_release_frames=int(negative_release_frames),
             cooldown=int(cooldown),
             location=location,
-            video_source=video_source,
-            enable_email=enable_email,
-            enable_whatsapp=enable_whatsapp,
+            enable_telegram=enable_telegram,
         )
         if status.get("running"):
             result = api_post(
@@ -264,12 +395,18 @@ elif page == "Settings":
                 {
                     "confidence": confidence,
                     "frame_consistency": int(frame_consistency),
+                    "negative_release_frames": int(negative_release_frames),
                     "cooldown_seconds": int(cooldown),
-                    "enable_email": enable_email,
-                    "enable_whatsapp": enable_whatsapp,
+                    "enable_telegram": enable_telegram,
                 },
             )
-            st.error(result["error"]) if result.get("error") else st.success("Settings applied to the running pipeline.")
+            if result.get("error"):
+                st.error(result["error"])
+            else:
+                st.success("Settings applied to the running pipeline.")
         else:
             st.success("Settings saved. They will be used the next time the pipeline starts.")
-    st.caption("Changing the video source or location takes effect on the next pipeline start.")
+    st.caption(
+        "Choose the input in the sidebar. Location changes take effect on the "
+        "next pipeline start."
+    )

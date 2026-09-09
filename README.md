@@ -1,395 +1,278 @@
-# Real-Time Violence Detection & Alert System
+# Temporal Violence Event Filter
 
-[![tests](https://github.com/SahilBh01r1769/violence_detection/actions/workflows/tests.yml/badge.svg)](https://github.com/SahilBh01r1769/violence_detection/actions/workflows/tests.yml)
+A small streaming-systems experiment about one question:
 
-A video-monitoring application that combines a **pretrained YOLOv8 fight/violence detector** with OpenCV, temporal filtering, FastAPI, Streamlit, SMTP Email alerts, and Twilio WhatsApp alerts.
+> How should noisy frame-level classifications be converted into an alertable event?
 
-**Training is not required.** The repository uses a public pretrained violence/fight checkpoint and keeps custom training as an optional utility only.
+The project uses a third-party YOLOv8 checkpoint as a source of per-frame detections. Its original contribution is the surrounding pipeline: video ingestion, temporal filtering, event creation, delivery-state handling, runtime status, and repeatable comparison of filtering thresholds.
 
-## Features
+This is not a trained-from-scratch model, a benchmark of model accuracy, or a production safety system.
 
-- Webcam, RTSP/IP-camera, and video-file input
-- YOLOv8 violence/fight inference
-- Configurable confidence threshold
-- N-consecutive-frame temporal consistency filter
-- Alert cooldown and annotated screenshots
-- SMTP Email alerts
-- Twilio WhatsApp alerts
-- Persistent local alert history
-- FastAPI control/status/history endpoints
-- Streamlit dashboard: Live Monitor, Alert History, Analytics, Settings
-- CLI/headless operation
-- Docker Compose support
-- Automated tests on Python 3.11
-- Optional custom-model training helper
+## Problem
 
-## Architecture
+A frame classifier can alternate between positive and negative predictions during the same scene. Triggering on every positive frame produces noisy duplicate alerts. Waiting for several positive frames reduces noise but delays the event.
 
-```mermaid
-flowchart LR
-    A[Webcam / RTSP / Video] --> B[OpenCV VideoStream]
-    B --> C[Pretrained YOLOv8 Violence Detector]
-    C --> D[N-frame Temporal Filter]
-    D --> E[Alert Cooldown]
-    E --> F[Screenshot + Alert History]
-    E --> G[Email / Twilio WhatsApp]
-    C --> H[Annotated Frames]
-    H --> I[FastAPI]
-    F --> I
-    I --> J[Streamlit Dashboard]
-```
+The experiment compares detector confidence, consecutive-positive thresholds
+of 1, 3, 5, and 10 frames, and one- versus three-negative-frame release. It
+records:
 
-The repository owns the application pipeline and integrations around the third-party checkpoint; it does not claim ownership of the checkpoint's training.
+- false triggers on non-violent footage;
+- duplicate triggers inside a ground-truth event;
+- video-time delay from ground-truth onset to the alertable event;
+- delay introduced by negative-frame release;
+- detected and missed ground-truth events.
 
-## Requirements
+The repository will report measurements only when they have been produced from identified sample videos. Passing unit tests are not presented as model-accuracy or performance evidence.
 
-- **Python 3.11** recommended
-- Internet access for the first model download
-- A webcam, RTSP stream, or local video file for inference
-- Email/Twilio credentials only if those notification channels are enabled
-
-A GPU is optional. Ultralytics/PyTorch will use available hardware automatically; CPU execution is also supported.
-
-## Default pretrained model
-
-The default checkpoint is the YOLOv8-nano fight/violence model published by:
-
-**Musawer1214/Fight-Violence-detection-yolov8**
-
-https://github.com/Musawer1214/Fight-Violence-detection-yolov8
-
-The upstream project documents two classes, `non_violence` and `violence`, with **class ID 1 representing violence**. This repository pins the download to upstream commit:
+## Current pipeline
 
 ```text
-20f0d05054cff7da2dc78dee3c2de1bd54106a13
+video source
+    -> OpenCV frame reader
+    -> pretrained YOLO inference
+    -> violent / non-violent frame decision
+    -> N-positive / K-negative temporal filter
+    -> persisted local event and screenshot
+    -> optional Telegram submission and separate outcome
 ```
 
-The model is downloaded to `models/violence_yolov8n.pt` and is intentionally not committed to this repository.
+The capture and inference path runs in one processing loop. The API runs that
+loop in a background thread. Telegram submission uses a separate worker.
+Background execution does not guarantee dashboard responsiveness under load.
 
-See [`THIRD_PARTY_MODELS.md`](THIRD_PARTY_MODELS.md) for attribution and limitations.
+## Scope
 
-> The pretrained checkpoint was not trained by this repository's author. This project contributes the real-time video pipeline, temporal filtering, API, dashboard, alerts, persistence, runtime configuration, and deployment integration around the model.
+The core experiment includes:
 
-## Quick start
+- webcam, RTSP, uploaded-video, or local video-path ingestion;
+- a pinned third-party YOLOv8 fight/violence checkpoint;
+- configurable detection confidence;
+- an N-frame consecutive-positive event start and K-frame negative release;
+- local event history and screenshots;
+- FastAPI status and control endpoints;
+- a small Streamlit experiment view;
+- unit tests and replayable temporal-filter evaluation.
 
-### 1. Clone the repository
+## Non-goals
 
-```bash
-git clone https://github.com/SahilBh01r1769/violence_detection.git
-cd violence_detection
-```
+The project does not claim:
 
-### 2. Create a virtual environment
+- ownership or training of the supplied checkpoint;
+- calibrated violence probabilities;
+- validated model accuracy;
+- guaranteed real-time throughput on every machine;
+- reliable safety or surveillance use;
+- cloud-scale or production-ready deployment;
+- recipient viewing or action after a provider accepts a notification.
+
+YOLO confidence is treated as detector confidence, not as a calibrated probability that a violent event is occurring.
+
+## Evidence status
+
+The committed two-clip case study replays 848 nonviolent observations and 694
+violent observations through 32 combinations of confidence, positive-frame,
+and negative-release settings. The committed JSON is checked against fresh
+replay by the test suite.
+
+The provisional C=0.70, N=5, K=3 setting produced three false events on the
+meeting clip and eight triggers, seven of them duplicates, inside the single
+continuous violent interval. Its first alert occurred 1.7917 seconds into
+that interval in video time. No tested setting both eliminated false events
+and detected the violent clip. See
+[`evaluation/case_study`](evaluation/case_study/README.md) for the sources,
+annotations, complete outputs, reproduction commands, and limitations.
+
+These two clips demonstrate temporal trade-offs but do not estimate general
+model accuracy. The measurements do not establish RTSP recovery, end-to-end
+wall-clock latency, or a general FPS figure. The test suite separately covers
+temporal state transitions, persistence and notification failure paths,
+runtime error reporting, API validation, and source-label redaction.
+
+## Run locally
+
+Python 3.11 is recommended.
 
 ```bash
 python -m venv venv
 ```
 
-Activate it:
+Activate the environment, then install dependencies:
 
 ```bash
-# Windows PowerShell
-venv\Scripts\Activate.ps1
-
-# Windows Command Prompt
-venv\Scripts\activate.bat
-
-# Linux/macOS
-source venv/bin/activate
-```
-
-### 3. Install dependencies
-
-```bash
-python -m pip install --upgrade pip
 pip install -r requirements.txt
-```
-
-### 4. Create configuration
-
-```bash
-# Windows PowerShell
-Copy-Item .env.example .env
-
-# Linux/macOS
-cp .env.example .env
-```
-
-The default `.env.example` is sufficient for local detection. Email and WhatsApp are optional; if you do not intend to configure them, set:
-
-```text
-ENABLE_EMAIL_ALERTS=false
-ENABLE_WHATSAPP_ALERTS=false
-```
-
-### 5. Download the pretrained model
-
-Download it explicitly before starting the application:
-
-```bash
 python -m utils.download_model
 ```
 
-Expected file:
+Copy `.env.example` to `.env` in the repository root, beside `config.py`.
+Existing environment variables and dashboard settings may override defaults.
+Restart the API and dashboard after changing `.env`.
 
-```text
-models/violence_yolov8n.pt
-```
-
-The application can also download it automatically if it is missing.
-
-### 6. Start the API
-
-From the repository root:
+Start the API:
 
 ```bash
 python -m uvicorn api.server:app --host 0.0.0.0 --port 8000
 ```
 
-Check:
-
-```text
-http://localhost:8000/health
-http://localhost:8000/docs
-```
-
-### 7. Start the dashboard
-
-Open a second terminal in the same repository and activate the same virtual environment:
+Start the dashboard in a second terminal:
 
 ```bash
 streamlit run dashboard/app.py --server.port 8501
 ```
 
-Open:
+The dashboard accepts an uploaded video, a local video-file path, a webcam
+index such as `0`, or an RTSP URL.
 
-```text
-http://localhost:8501
-```
-
-Go to **Settings**, choose the video source, then press **Start** in the sidebar.
-
-## Video sources
-
-### Webcam
-
-Use:
-
-```text
-0
-```
-
-or run directly:
+The headless pipeline can also be run directly:
 
 ```bash
-python -m core.pipeline --source 0 --location "Camera-01" --display
+python -m core.pipeline --source "path/to/video.mp4" --location "Test-Video"
 ```
 
-### Video file
+## Detection rule
 
-Use a path such as:
+For each decoded frame:
+
+1. YOLO returns detected boxes, class IDs, labels, and confidence values.
+2. A frame is positive when at least one detection matches the configured violence class.
+3. N consecutive positive frames start one event and latch it active.
+4. Continued positive frames do not emit another event.
+5. K consecutive negative frames release the latch so a later positive run
+   can become a new event.
+
+N controls evidence required at onset. K separately controls tolerance for
+short negative gaps inside an active event. Notification cooldown does not
+define event identity and does not suppress local event persistence.
+
+Default configuration:
 
 ```text
-C:\videos\sample.mp4
+CONFIDENCE_THRESHOLD=0.70
+FRAME_CONSISTENCY=5
+NEGATIVE_RELEASE_FRAMES=3
+ALERT_COOLDOWN_SECONDS=30
+FPS_TARGET=20
 ```
 
-or:
+The C=0.70, N=5, K=3 default is provisional and selected only from the
+committed two-clip case study. It must not be described as generally optimal.
+
+`FPS_TARGET` limits ingestion rate. The dashboard's current FPS value is processed frames divided by elapsed runtime; it is not a hardware benchmark.
+
+## Third-party model
+
+The default checkpoint comes from [Musawer1214/Fight-Violence-detection-yolov8](https://github.com/Musawer1214/Fight-Violence-detection-yolov8) and is pinned to upstream commit:
+
+```text
+20f0d05054cff7da2dc78dee3c2de1bd54106a13
+```
+
+The upstream checkpoint exposes `non_violence` and `violence`, with class ID 1 treated as violent by default. See [THIRD_PARTY_MODELS.md](THIRD_PARTY_MODELS.md).
+
+## Repeatable filter comparison
+
+Each sample video is inferred once at a 0.25 capture floor into a saved
+frame-level trace. Confidence thresholds of 0.40, 0.55, 0.70, and 0.85;
+positive thresholds of 1, 3, 5, and 10; and negative-release values of 1 and
+3 then replay the same detector outputs. Differences therefore come from the
+decision settings rather than separate inference runs.
 
 ```bash
-python -m core.pipeline --source "path/to/video.mp4" --location "Test-Video" --display
+python -m evaluation.temporal evaluation/case_study/violence_trace.csv --confidence-thresholds 0.40,0.55,0.70,0.85 --thresholds 1,3,5,10 --negative-release-frames 1,3
 ```
 
-Local video files stop cleanly at end-of-file; they are not looped automatically.
+## Local events and optional Telegram
 
-### RTSP/IP camera
+Every qualified event is recorded before notification policy is considered.
+`logs/event_history.json` stores the event ID, detection timestamp, source,
+class, confidence, screenshot path, and separate notification fields.
+Screenshots are written under `screenshots/`. History writes use temporary
+files followed by replacement. The persisted history retains the latest 1,000
+records. Screenshot retention defaults to 500 images, so older records may
+outlive their images. This is bounded local history, not an archival store.
 
-Use the full RTSP URL:
+Telegram is disabled by default. To enable it, set these in the root `.env`:
 
-```bash
-python -m core.pipeline --source "rtsp://user:password@camera/stream" --location "Entrance"
+```dotenv
+ENABLE_TELEGRAM_ALERTS=true
+TELEGRAM_BOT_TOKEN=your_private_bot_token
+TELEGRAM_CHAT_ID=your_recipient_chat_id
 ```
 
-Credentials in RTSP URLs are redacted from application log messages.
+Create the bot through Telegram's BotFather and send `/start` to it from the
+intended recipient account. Use the numeric ID of that conversation, not the
+bot's own ID. Keep the token outside Git and logs. In the dashboard, enable
+Telegram in Settings and save before starting a run. Telegram receives the
+image directly through an HTTP photo upload; no hosted-media service is needed.
 
-## Detection logic
+| Notification state | Meaning |
+| --- | --- |
+| `not_attempted` | Disabled, unconfigured, another submission pending, or cooldown active; the suppression reason identifies which |
+| `queued` | Submission worker scheduled; not a successful message |
+| `accepted` | Telegram API accepted the submission; no claim about recipient viewing |
+| `failed` | Submission failed, or its outcome became unknown after restart |
 
-For each frame:
+Cooldown starts only after acceptance. Events occurring during cooldown or
+while another submission is pending still persist locally. Failure releases
+the pending guard, but does not automatically retry the same latched event.
+There is no durable delivery queue. A process exit may interrupt a worker;
+previously queued records are treated as failed with an unknown-outcome error
+when loaded again. Legacy sender-success history remains readable as accepted
+submission, never as proof of recipient viewing.
 
-1. YOLO returns bounding boxes, class IDs, labels, and confidence scores.
-2. A detection is violent when its class ID or normalized class name matches the configured violence classes.
-3. A frame is violent when at least one violent detection exists.
-4. The result enters a temporal window.
-5. An alert becomes eligible only when all `FRAME_CONSISTENCY` frames are violent.
-6. The alert cooldown is checked before a screenshot or notification is generated.
-7. Alert metadata is taken from the highest-confidence **violent** detection.
+The project owner reported receiving Telegram images during a real test on
+September 8, 2026. Earlier exported records also demonstrated actual provider
+rejection of a bot-as-recipient configuration. These observations establish
+one working setup and one rejection path, not general delivery reliability.
 
-If model inference itself fails, the pipeline stops and logs the error instead of incorrectly treating the frame as safe.
+## Runtime and dashboard
 
-## Dashboard
+The dashboard provides source selection, start/stop, the current frame,
+temporal settings, active-event state, event history, screenshots, notification
+outcomes, and the last runtime error. Refresh is optional and disabled by
+default. With refresh disabled, displayed status changes on the next rerun.
+Uploaded videos are stored in `runtime_uploads/`; the dashboard and API must
+share that filesystem. Uploaded files are not automatically purged.
 
-### Live Monitor
-Shows the latest annotated frame, runtime state, frame count, alerts, FPS, confidence, consistency threshold, and cooldown.
+`/status` retains diagnostics while idle. Normal file completion is `ended`,
+manual stopping is `stopped`, and an unrecovered live-source read is
+`disconnected`. Source opening, inference, and pipeline exceptions retain an
+error stage, message, and UTC timestamp. Notification rejection is recorded
+on the event and does not erase it. The live reader makes one reconnect
+attempt; real RTSP recovery has not been validated. An unsuccessful file read
+is treated as completion, so this does not prove a corrupt file decoded fully.
 
-### Alert History
-Loads the complete persisted alert history through API pagination, supports class/confidence filtering, screenshot viewing, and CSV export.
+Run one pipeline process against a history directory. Local JSON persistence
+has no coordination for multiple independent writers. Stop is cooperative;
+an in-progress OpenCV read or model call can delay shutdown.
 
-### Analytics
-Shows total alerts, average confidence, class counts, confidence distribution, and alerts over time.
-
-### Settings
-Controls:
-
-- video source
-- camera/location label
-- confidence threshold
-- consecutive-frame requirement
-- alert cooldown
-- Email alerts on/off
-- WhatsApp alerts on/off
-
-The dashboard initializes from `.env`. Confidence, consistency, cooldown, and notification toggles can be updated while the pipeline is running. Video source and location apply on the next start.
-
-## API
-
-| Method | Endpoint | Purpose |
-|---|---|---|
-| `GET` | `/health` | API health check |
-| `GET` | `/status` | Pipeline status and current runtime settings |
-| `GET` | `/alerts` | Paginated persisted alert history |
-| `GET` | `/alerts/{id}/screenshot` | Retrieve an alert screenshot |
-| `POST` | `/pipeline/start` | Start video processing |
-| `POST` | `/pipeline/stop` | Stop video processing |
-| `POST` | `/pipeline/config` | Update runtime settings |
-| `GET` | `/stream/frame` | Latest annotated JPEG frame |
-
-The API waits for the previous processing thread to shut down before allowing a new pipeline to take control of the video source.
-
-## Email alerts
-
-Set these values in `.env`:
-
-```text
-ENABLE_EMAIL_ALERTS=true
-SMTP_HOST=smtp.gmail.com
-SMTP_PORT=587
-SMTP_USER=your_email@gmail.com
-SMTP_PASSWORD=your_app_password
-ALERT_RECIPIENTS=recipient@example.com
-```
-
-For Gmail, use a Google App Password rather than your normal account password.
-
-## WhatsApp alerts
-
-Set:
-
-```text
-ENABLE_WHATSAPP_ALERTS=true
-TWILIO_ACCOUNT_SID=
-TWILIO_AUTH_TOKEN=
-TWILIO_WHATSAPP_FROM=whatsapp:+14155238886
-TWILIO_WHATSAPP_TO=
-```
-
-The current integration sends text alert details. A local screenshot path cannot be attached directly through Twilio; image media requires a public HTTPS URL.
-
-## Docker
-
-Create `.env` first, then run:
-
-```bash
-docker compose up --build
-```
-
-Services:
-
-```text
-FastAPI:   http://localhost:8000
-Streamlit: http://localhost:8501
-```
-
-The Compose setup persists:
-
-- `models/`
-- `screenshots/`
-- `logs/`
-
-and checks container health through `/health` using Python's standard library.
-
-For a Linux host webcam, uncomment the `/dev/video0` device mapping in `docker-compose.yml`. RTSP inputs do not require webcam passthrough.
-
-## Tests
-
-Install development dependencies:
+## Verification and scope
 
 ```bash
 pip install -r requirements-dev.txt
-```
-
-Run:
-
-```bash
 python -m pytest -q
 ```
 
-Tests cover:
+Tests cover state transitions, shared runtime/replay logic, API behavior,
+failure visibility, persistence independent of notification eligibility,
+mocked Telegram acceptance/rejection, upload storage, and exact replay of
+the two saved traces. Synthetic and mocked checks establish implementation
+behavior. Saved real detector traces establish only this case study.
 
-- violent-class selection
-- alert metadata selection
-- temporal-window reconfiguration
-- video-source normalization
-- API input validation
-- runtime settings updates
-- inference failure handling
-- RTSP credential redaction
-- stopped-runtime statistics
+The operating point was selected on the same two clips being reported, with
+no independent holdout. It is a descriptive selection, not evidence of
+generalization. Ground truth is the owner's whole-clip annotation; it has not
+been independently reviewed. The capture artifacts do not include the local
+checkpoint hash or exact dependency versions, so bit-for-bit re-inference
+cannot be guaranteed. Replay of the committed scores is reproducible.
 
-GitHub Actions runs the test suite on Python 3.11 for pushes to `main` and pull requests.
+The model remains pretrained and frame-based. No new model was trained.
+Email, Twilio/WhatsApp, generic dashboard analytics, the unused training
+helper, and unverified Docker deployment files have been removed. Plotly and
+direct pandas usage were removed with analytics; Streamlit may still install
+pandas transitively. The supported workflow is local API plus dashboard or
+the headless pipeline. Real-time latency, general accuracy, RTSP recovery,
+and sustained unattended operation remain unverified.
 
-These tests validate application behavior; they do **not** claim or estimate the third-party model's accuracy.
+## License and responsible use
 
-## Optional custom training
-
-Training is **not required** for the default project.
-
-If you later have a YOLO-format labelled dataset and want a custom model:
-
-```bash
-python -m utils.train --data dataset.yaml --model yolov8m.pt --device 0 --validate
-```
-
-For another pretrained/custom checkpoint, update `MODEL_PATH`, `VIOLENCE_CLASS_IDS`, and/or `VIOLENCE_CLASSES` in `.env` to match that model's classes.
-
-## Project structure
-
-```text
-violence_detection/
-├── alerts/
-├── api/
-├── core/
-├── dashboard/
-├── tests/
-├── utils/
-├── .github/workflows/tests.yml
-├── .dockerignore
-├── .env.example
-├── config.py
-├── Dockerfile
-├── docker-compose.yml
-├── requirements.txt
-└── README.md
-```
-
-Runtime model weights, screenshots, logs, local environments, and `.env` secrets are excluded from Git and Docker build context.
-
-## Limitations
-
-- The default checkpoint is a third-party violence/fight detector; this repository does not claim ownership of its training or accuracy.
-- Detection is per-frame YOLO inference combined with an N-frame consistency heuristic, not a learned temporal video model.
-- False positives and false negatives remain possible.
-- The API/dashboard do not include authentication and should not be exposed directly to an untrusted public network.
-- Surveillance usage must follow applicable privacy, consent, and retention requirements.
-
-## Intended use
-
-This project is intended for learning, prototyping, demonstrations, and authorized monitoring environments. Alert screenshots and history are stored locally. Configured Email/Twilio channels send alert information to those external services only when enabled.
+Use only footage and camera sources you are authorized to process. This experiment is unsuitable for autonomous safety decisions or unreviewed surveillance.

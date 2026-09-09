@@ -24,7 +24,8 @@ models/*.onnx
 # Runtime outputs
 screenshots/
 logs/
-runs/            # YOLOv8 training output
+sample_videos/
+runtime_uploads/
 
 # IDE
 .vscode/

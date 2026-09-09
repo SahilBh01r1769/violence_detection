@@ -1,3 +1,5 @@
+from types import SimpleNamespace
+
 from fastapi.testclient import TestClient
 
 import api.server as server
@@ -6,25 +8,48 @@ import api.server as server
 class FakeDetector:
     confidence = 0.55
     frame_consistency = 5
+    negative_release_frames = 1
+    event_active = False
     def set_frame_consistency(self, value):
         self.frame_consistency = value
+    def set_negative_release_frames(self, value):
+        self.negative_release_frames = value
 
 
 class FakeAlertManager:
-    history = []
+    history = [
+        SimpleNamespace(
+            id=7,
+            notification_status="failed",
+            notification_channel="telegram",
+            notification_completed_at="2026-09-06 10:00:00",
+            notification_error="telegram unavailable",
+            notification_suppression_reason=None,
+        )
+    ]
     cooldown = 30
     seconds_until_next_alert = 0
-    enable_email = True
-    enable_whatsapp = True
+    enable_telegram = True
+    telegram_bot_token = "test-token"
+    telegram_chat_id = "test-chat"
+    accepted_notifications = 0
 
 
 class FakePipeline:
     def __init__(self, **kwargs):
         self._running = False
         self.frames_processed = 0
-        self.alerts_fired = 0
+        self.events_recorded = 1
         self.uptime = 0
         self.fps = 0
+        self.source_state = "disconnected"
+        self.last_error = SimpleNamespace(
+            as_dict=lambda: {
+                "stage": "source",
+                "message": "video source disconnected",
+                "timestamp": "2026-09-06T10:00:00+00:00",
+            }
+        )
         self.detector = FakeDetector()
         self.alert_manager = FakeAlertManager()
     def run(self, source=None):
@@ -41,14 +66,51 @@ def test_alert_page_limit_rejects_200():
     assert TestClient(server.app).get("/alerts?per_page=200").status_code == 422
 
 
+def test_status_exposes_runtime_and_notification_failures(monkeypatch):
+    monkeypatch.setattr(server, "_pipeline", FakePipeline())
+
+    data = TestClient(server.app).get("/status").json()
+
+    assert data["source_state"] == "disconnected"
+    assert data["event_active"] is False
+    assert data["last_error"]["stage"] == "source"
+    assert data["events_recorded"] == 1
+    assert data["notifications_accepted"] == 0
+    assert data["latest_notification"]["status"] == "failed"
+    assert data["latest_notification"]["error"] == "telegram unavailable"
+    assert data["telegram_enabled"] is True
+    assert data["telegram_configured"] is True
+
+
+def test_status_retains_latest_notification_failure_while_pipeline_is_idle(
+    monkeypatch,
+):
+    monkeypatch.setattr(server, "_pipeline", None)
+    monkeypatch.setattr(server, "_history_records", lambda: FakeAlertManager.history)
+
+    data = TestClient(server.app).get("/status").json()
+
+    assert data["source_state"] == "idle"
+    assert data["latest_notification"]["status"] == "failed"
+
+
 def test_config_updates_all_supported_settings(monkeypatch):
     pipeline = FakePipeline()
-    server._pipeline = pipeline
+    monkeypatch.setattr(server, "_pipeline", pipeline)
     client = TestClient(server.app)
-    response = client.post("/pipeline/config", json={"confidence": 0.7, "frame_consistency": 7, "cooldown_seconds": 15, "enable_email": False, "enable_whatsapp": False})
+    response = client.post(
+        "/pipeline/config",
+        json={
+            "confidence": 0.7,
+            "frame_consistency": 7,
+            "negative_release_frames": 3,
+            "cooldown_seconds": 15,
+            "enable_telegram": False,
+        },
+    )
     assert response.status_code == 200
     assert pipeline.detector.confidence == 0.7
     assert pipeline.detector.frame_consistency == 7
+    assert pipeline.detector.negative_release_frames == 3
     assert pipeline.alert_manager.cooldown == 15
-    assert not pipeline.alert_manager.enable_email
-    assert not pipeline.alert_manager.enable_whatsapp
+    assert not pipeline.alert_manager.enable_telegram
