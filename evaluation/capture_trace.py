@@ -4,8 +4,11 @@ from __future__ import annotations
 
 import argparse
 import csv
+import hashlib
+import importlib.metadata
 import json
 import math
+import platform
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Callable, Iterable, Protocol, Sequence
@@ -33,6 +36,36 @@ class TraceSummary:
     duration_seconds: float
     capture_confidence_floor: float
     output_path: str
+
+
+def file_sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def write_capture_metadata(
+    output_path: Path, video_path: Path, model_path: Path = MODEL_PATH
+) -> Path:
+    metadata_path = output_path.with_suffix(".metadata.json")
+    packages = {}
+    for name in ("ultralytics", "opencv-python", "numpy"):
+        try:
+            packages[name] = importlib.metadata.version(name)
+        except importlib.metadata.PackageNotFoundError:
+            packages[name] = None
+    metadata = {
+        "trace": output_path.name,
+        "source_video_sha256": file_sha256(video_path),
+        "model_path": str(model_path),
+        "model_sha256": file_sha256(model_path),
+        "python": platform.python_version(),
+        "packages": packages,
+    }
+    metadata_path.write_text(json.dumps(metadata, indent=2) + "\n", encoding="utf-8")
+    return metadata_path
 
 
 class FrameDetector(Protocol):
@@ -195,6 +228,7 @@ def main() -> None:
         args.ground_truth,
         capture_confidence_floor=args.capture_confidence_floor,
     )
+    write_capture_metadata(args.output, args.video)
     print(json.dumps(asdict(summary), indent=2))
 
 
