@@ -1,8 +1,7 @@
-# Two-clip temporal-filter case study
+# Eight-clip temporal-filter case study
 
 This case study tests how detector confidence, positive-frame qualification,
-and negative-frame release affect event output. It is a small controlled
-example, not an accuracy benchmark.
+and negative-frame release affect event output across eight short clips.
 
 ## Source clips and annotations
 
@@ -10,11 +9,17 @@ example, not an accuracy benchmark.
 | --- | --- | ---: | ---: | --- |
 | `violence_trace.csv` | [Strong female mixed martial arts fighter](https://mixkit.co/free-stock-video/strong-female-mixed-martial-arts-fighter-40991/) | 694 | 24 | Entire decoded clip is violent |
 | `nonviolence_trace.csv` | [People having a work meeting around a table](https://mixkit.co/free-stock-video/people-having-a-work-meeting-around-a-table-4547/) | 848 | 30 | No violent interval |
+| `traces/crowded_nonviolent.csv` | [People in the subway hall in Tokyo](https://mixkit.co/free-stock-video/people-in-the-subway-hall-in-tokyo-4454/) | 331 | 30 | No violent interval |
+| `traces/nonviolent_contact.csv` | [Lovers walking through a lavender field](https://mixkit.co/free-stock-video/lovers-walking-through-a-lavender-field-4530/) | 539 | 30 | No violent interval |
+| `traces/nonviolent_walking.csv` | [Students walking through a college](https://mixkit.co/free-stock-video/students-walking-through-a-college-4560/) | 375 | 30 | No violent interval |
+| `traces/soldiers_with_guns.csv` | [Soldiers in defense position on the battlefield](https://mixkit.co/free-stock-video/soldiers-in-defense-position-on-the-battlefield-23607/) | 391 | 25 | Weapons present; no visible violent act |
+| `traces/fencing.csv` | [People doing fencing together](https://www.pexels.com/video/people-doing-fencing-together-6536348/) | 733 | 25 | Combat-like sport throughout |
+| `traces/intermittent_violence.csv` | Mixkit boxing clip, identified by committed video hash | 302 | 25 | Coarse whole-clip positive label; two punches occur during the clip |
 
-Both source pages identify the downloads as free stock video under the Mixkit
-Stock Video Free License. The annotations were made by reviewing the clips,
-not by copying the detector output. The traces contain frame decisions rather
-than the source videos.
+The Mixkit pages identify their downloads as free stock video under the Mixkit
+Stock Video Free License; the fencing clip comes from Pexels. The annotations
+were assigned from the reviewed clip content rather than detector output. The
+traces contain frame decisions rather than the source videos.
 
 ## Detector and timestamp provenance
 
@@ -39,7 +44,7 @@ of each annotation.
 
 `C` is detector confidence, `N` is consecutive positive frames required to
 start an event, and `K` is consecutive negative frames required to release
-the active-event latch. The two result JSON files contain every combination
+the active-event latch. The result files contain every combination
 of C = 0.40, 0.55, 0.70, 0.85; N = 1, 3, 5, 10; and K = 1, 3.
 
 Selected rows show the main trade-off:
@@ -64,6 +69,23 @@ At C=0.55 and N=5, changing K from 1 to 3 reduced violent-clip triggers from
 reduced meeting-clip false events from 5 to 3 compared with K=1. K=3 released
 two frame intervals after the first negative: 0.0667 seconds at 30 FPS and
 0.0833 seconds at 24 FPS.
+
+## Expanded result
+
+At C=0.70, N=5, K=3, the four added nonviolent scenes produced no false
+events. The original meeting clip still produced three. The MMA clip produced
+eight triggers with seven duplicates, and intermittent fighting produced three
+with two duplicates. Fencing was missed at every tested operating point.
+
+Across the eight clips, the provisional setting produced three false events,
+nine duplicate triggers, detected two of three positive clips, and missed one.
+The intermittent clip uses a coarse whole-clip label, so its 2.16-second value
+measures delay from video start rather than punch onset.
+
+`summary.csv` contains all 256 clip/configuration rows, and `tradeoff.svg`
+plots the false-trigger/delay trade-off. Metadata sidecars under `traces/`
+record the video hash, model hash, Python version, and inference dependency
+versions for each new capture.
 
 ## Provisional operating point
 

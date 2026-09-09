@@ -40,10 +40,9 @@ Background execution does not guarantee dashboard responsiveness under load.
 
 ## Measured result
 
-The committed two-clip case study replays 848 nonviolent observations and 694
-violent observations through 32 combinations of confidence, positive-frame,
-and negative-release settings. The committed JSON is checked against fresh
-replay by the test suite.
+The committed eight-clip case study replays 4,213 frame observations through
+32 combinations of confidence, positive-frame, and negative-release settings.
+The 256-row summary is checked against fresh replay by the test suite.
 
 | C | N | K | False events: meeting | Violent-clip triggers | Duplicates | First alert |
 | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
@@ -58,12 +57,19 @@ events compared with the earlier C=0.55, N=5, K=1 policy without increasing
 the measured first-alert delay. The stronger N=10 setting delayed the alert
 until the end of the violent clip, while C=0.85 missed it.
 
-| Clip | Frames | FPS | Annotation |
-| --- | ---: | ---: | --- |
-| [Work meeting](https://mixkit.co/free-stock-video/people-having-a-work-meeting-around-a-table-4547/) | 848 | 30 | Nonviolent throughout |
-| [Mixed martial arts](https://mixkit.co/free-stock-video/strong-female-mixed-martial-arts-fighter-40991/) | 694 | 24 | Violent throughout |
+| Clip group | Clips | Result at C=0.70, N=5, K=3 |
+| --- | ---: | --- |
+| Nonviolent scenes | 5 | Four clean negatives; 3 false events on the meeting clip |
+| Combat-like scenes | 3 | MMA and intermittent fighting detected; fencing missed |
 
-The complete 64-row result table is in
+The eight reviewed clips include a meeting, crowded subway, walking students,
+close contact, soldiers holding weapons, mixed martial arts, intermittent
+punching, and fencing. At the provisional setting, the four new negative
+scenes produced no false event. The intermittent fighting clip produced three
+triggers, including two duplicates. Fencing produced no trigger at any tested
+setting.
+
+The complete 256-row result table is in
 [`evaluation/case_study/summary.csv`](evaluation/case_study/summary.csv).
 The saved traces, annotations, full matrices, and capture procedure are in
 [`evaluation/case_study`](evaluation/case_study/README.md). More varied scenes
@@ -135,7 +141,7 @@ FPS_TARGET=20
 ```
 
 The C=0.70, N=5, K=3 default is provisional and selected only from the
-committed two-clip case study. It must not be described as generally optimal.
+committed case study. It must not be described as generally optimal.
 
 `FPS_TARGET` limits ingestion rate. The dashboard's current FPS value is processed frames divided by elapsed runtime; it is not a hardware benchmark.
 
@@ -246,7 +252,7 @@ python -m pytest -q
 Tests cover state transitions, shared runtime/replay logic, API behavior,
 failure visibility, persistence independent of notification eligibility,
 mocked Telegram acceptance/rejection, upload storage, and exact replay of
-the two saved traces. Synthetic and mocked checks establish implementation
+the saved traces. Synthetic and mocked checks establish implementation
 behavior. Saved real detector traces establish only this case study.
 
 | Project claim | Evidence |
@@ -257,7 +263,7 @@ behavior. Saved real detector traces establish only this case study.
 | Telegram submits an event screenshot | HTTP integration tests and a user-verified live receipt |
 | Runtime failures remain visible through the API | Pipeline and API failure-path tests |
 
-The model is pretrained and frame-based. The two-clip result is a controlled
+The model is pretrained and frame-based. The eight-clip result is a controlled
 case study rather than a general accuracy estimate. Alert delay is measured in
 video time; end-to-end latency and sustained RTSP operation have not yet been
 benchmarked. New captures record source and model hashes plus exact inference

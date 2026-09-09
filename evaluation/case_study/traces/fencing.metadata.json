@@ -1,0 +1,12 @@
+{
+  "trace": "fencing.csv",
+  "source_video_sha256": "471769c885bc696f76c42e047783674601d536fa5a0a9713c2d12be8b46d89fc",
+  "model_path": "models/violence_yolov8n.pt",
+  "model_sha256": "1714eef088cd4ae5fc8618f6f94890d476434298be6c7a2151faef18bef9d459",
+  "python": "3.14.5",
+  "packages": {
+    "ultralytics": "8.4.142",
+    "opencv-python": "4.14.0.94",
+    "numpy": "2.5.3"
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "trace": "nonviolent_contact.csv",
+  "source_video_sha256": "6f1aaa543613379b22130770aff53781c24901361b98a2a9e84a82b1d9a12b90",
+  "model_path": "models/violence_yolov8n.pt",
+  "model_sha256": "1714eef088cd4ae5fc8618f6f94890d476434298be6c7a2151faef18bef9d459",
+  "python": "3.14.5",
+  "packages": {
+    "ultralytics": "8.4.142",
+    "opencv-python": "4.14.0.94",
+    "numpy": "2.5.3"
+  }
+}
