@@ -36,7 +36,9 @@ video source
     -> optional Telegram submission and separate outcome
 ```
 
-The capture and inference path currently runs in one processing loop. The API runs that loop in a background thread so the dashboard remains responsive.
+The capture and inference path runs in one processing loop. The API runs that
+loop in a background thread. Telegram submission uses a separate worker.
+Background execution does not guarantee dashboard responsiveness under load.
 
 ## Scope
 
@@ -100,6 +102,10 @@ Activate the environment, then install dependencies:
 pip install -r requirements.txt
 python -m utils.download_model
 ```
+
+Copy `.env.example` to `.env` in the repository root, beside `config.py`.
+Existing environment variables and dashboard settings may override defaults.
+Restart the API and dashboard after changing `.env`.
 
 Start the API:
 
@@ -173,6 +179,99 @@ decision settings rather than separate inference runs.
 ```bash
 python -m evaluation.temporal evaluation/case_study/violence_trace.csv --confidence-thresholds 0.40,0.55,0.70,0.85 --thresholds 1,3,5,10 --negative-release-frames 1,3
 ```
+
+## Local events and optional Telegram
+
+Every qualified event is recorded before notification policy is considered.
+`logs/event_history.json` stores the event ID, detection timestamp, source,
+class, confidence, screenshot path, and separate notification fields.
+Screenshots are written under `screenshots/`. History writes use temporary
+files followed by replacement. The persisted history retains the latest 1,000
+records. Screenshot retention defaults to 500 images, so older records may
+outlive their images. This is bounded local history, not an archival store.
+
+Telegram is disabled by default. To enable it, set these in the root `.env`:
+
+```dotenv
+ENABLE_TELEGRAM_ALERTS=true
+TELEGRAM_BOT_TOKEN=your_private_bot_token
+TELEGRAM_CHAT_ID=your_recipient_chat_id
+```
+
+Create the bot through Telegram's BotFather and send `/start` to it from the
+intended recipient account. Use the numeric ID of that conversation, not the
+bot's own ID. Keep the token outside Git and logs. In the dashboard, enable
+Telegram in Settings and save before starting a run. Telegram receives the
+image directly through an HTTP photo upload; no hosted-media service is needed.
+
+| Notification state | Meaning |
+| --- | --- |
+| `not_attempted` | Disabled, unconfigured, another submission pending, or cooldown active; the suppression reason identifies which |
+| `queued` | Submission worker scheduled; not a successful message |
+| `accepted` | Telegram API accepted the submission; no claim about recipient viewing |
+| `failed` | Submission failed, or its outcome became unknown after restart |
+
+Cooldown starts only after acceptance. Events occurring during cooldown or
+while another submission is pending still persist locally. Failure releases
+the pending guard, but does not automatically retry the same latched event.
+There is no durable delivery queue. A process exit may interrupt a worker;
+previously queued records are treated as failed with an unknown-outcome error
+when loaded again. Legacy sender-success history remains readable as accepted
+submission, never as proof of recipient viewing.
+
+The project owner reported receiving Telegram images during a real test on
+September 8, 2026. Earlier exported records also demonstrated actual provider
+rejection of a bot-as-recipient configuration. These observations establish
+one working setup and one rejection path, not general delivery reliability.
+
+## Runtime and dashboard
+
+The dashboard provides source selection, start/stop, the current frame,
+temporal settings, active-event state, event history, screenshots, notification
+outcomes, and the last runtime error. Refresh is optional and disabled by
+default. With refresh disabled, displayed status changes on the next rerun.
+Uploaded videos are stored in `runtime_uploads/`; the dashboard and API must
+share that filesystem. Uploaded files are not automatically purged.
+
+`/status` retains diagnostics while idle. Normal file completion is `ended`,
+manual stopping is `stopped`, and an unrecovered live-source read is
+`disconnected`. Source opening, inference, and pipeline exceptions retain an
+error stage, message, and UTC timestamp. Notification rejection is recorded
+on the event and does not erase it. The live reader makes one reconnect
+attempt; real RTSP recovery has not been validated. An unsuccessful file read
+is treated as completion, so this does not prove a corrupt file decoded fully.
+
+Run one pipeline process against a history directory. Local JSON persistence
+has no coordination for multiple independent writers. Stop is cooperative;
+an in-progress OpenCV read or model call can delay shutdown.
+
+## Verification and scope
+
+```bash
+pip install -r requirements-dev.txt
+python -m pytest -q
+```
+
+Tests cover state transitions, shared runtime/replay logic, API behavior,
+failure visibility, persistence independent of notification eligibility,
+mocked Telegram acceptance/rejection, upload storage, and exact replay of
+the two saved traces. Synthetic and mocked checks establish implementation
+behavior. Saved real detector traces establish only this case study.
+
+The operating point was selected on the same two clips being reported, with
+no independent holdout. It is a descriptive selection, not evidence of
+generalization. Ground truth is the owner's whole-clip annotation; it has not
+been independently reviewed. The capture artifacts do not include the local
+checkpoint hash or exact dependency versions, so bit-for-bit re-inference
+cannot be guaranteed. Replay of the committed scores is reproducible.
+
+The model remains pretrained and frame-based. No new model was trained.
+Email, Twilio/WhatsApp, generic dashboard analytics, the unused training
+helper, and unverified Docker deployment files have been removed. Plotly and
+direct pandas usage were removed with analytics; Streamlit may still install
+pandas transitively. The supported workflow is local API plus dashboard or
+the headless pipeline. Real-time latency, general accuracy, RTSP recovery,
+and sustained unattended operation remain unverified.
 
 ## License and responsible use
 
