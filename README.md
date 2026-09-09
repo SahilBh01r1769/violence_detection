@@ -12,13 +12,15 @@ This is not a trained-from-scratch model, a benchmark of model accuracy, or a pr
 
 A frame classifier can alternate between positive and negative predictions during the same scene. Triggering on every positive frame produces noisy duplicate alerts. Waiting for several positive frames reduces noise but delays the event.
 
-The experiment compares consecutive-positive thresholds of 1, 3, 5, and 10 frames and records:
+The experiment compares detector confidence, consecutive-positive thresholds
+of 1, 3, 5, and 10 frames, and one- versus three-negative-frame release. It
+records:
 
 - false triggers on non-violent footage;
-- delay from the first positive frame to the alertable event;
-- processed-frame throughput;
-- source and inference failures;
-- the final state of each locally recorded event.
+- duplicate triggers inside a ground-truth event;
+- video-time delay from ground-truth onset to the alertable event;
+- delay introduced by negative-frame release;
+- detected and missed ground-truth events.
 
 The repository will report measurements only when they have been produced from identified sample videos. Passing unit tests are not presented as model-accuracy or performance evidence.
 
@@ -29,9 +31,9 @@ video source
     -> OpenCV frame reader
     -> pretrained YOLO inference
     -> violent / non-violent frame decision
-    -> consecutive-frame filter
-    -> local alert event
-    -> persisted outcome and screenshot
+    -> N-positive / K-negative temporal filter
+    -> persisted local event and screenshot
+    -> optional Telegram submission and separate outcome
 ```
 
 The capture and inference path currently runs in one processing loop. The API runs that loop in a background thread so the dashboard remains responsive.
@@ -40,10 +42,10 @@ The capture and inference path currently runs in one processing loop. The API ru
 
 The core experiment includes:
 
-- webcam, RTSP, or local video-path ingestion;
+- webcam, RTSP, uploaded-video, or local video-path ingestion;
 - a pinned third-party YOLOv8 fight/violence checkpoint;
 - configurable detection confidence;
-- an N-frame consecutive-positive filter;
+- an N-frame consecutive-positive event start and K-frame negative release;
 - local event history and screenshots;
 - FastAPI status and control endpoints;
 - a small Streamlit experiment view;
@@ -59,23 +61,30 @@ The project does not claim:
 - guaranteed real-time throughput on every machine;
 - reliable safety or surveillance use;
 - cloud-scale or production-ready deployment;
-- verified external notification delivery.
+- recipient viewing or action after a provider accepts a notification.
 
 YOLO confidence is treated as detector confidence, not as a calibrated probability that a violent event is occurring.
 
 ## Evidence status
 
-The following are currently established by repository tests:
+The committed two-clip case study replays 848 nonviolent observations and 694
+violent observations through 32 combinations of confidence, positive-frame,
+and negative-release settings. The committed JSON is checked against fresh
+replay by the test suite.
 
-- configured class ID/name matching;
-- preference for violent-detection metadata;
-- runtime filter reconfiguration;
-- API input validation and configuration updates;
-- source normalization;
-- inference exceptions are raised rather than converted into safe frames;
-- RTSP credentials are redacted in log labels.
+The provisional C=0.70, N=5, K=3 setting produced three false events on the
+meeting clip and eight triggers, seven of them duplicates, inside the single
+continuous violent interval. Its first alert occurred 1.7917 seconds into
+that interval in video time. No tested setting both eliminated false events
+and detected the violent clip. See
+[`evaluation/case_study`](evaluation/case_study/README.md) for the sources,
+annotations, complete outputs, reproduction commands, and limitations.
 
-The tests do not yet establish temporal trade-offs, notification delivery, RTSP recovery, Docker behavior, end-to-end video accuracy, or a specific FPS figure.
+These two clips demonstrate temporal trade-offs but do not estimate general
+model accuracy. The measurements do not establish RTSP recovery, end-to-end
+wall-clock latency, or a general FPS figure. The test suite separately covers
+temporal state transitions, persistence and notification failure paths,
+runtime error reporting, API validation, and source-label redaction.
 
 ## Run locally
 
@@ -104,7 +113,8 @@ Start the dashboard in a second terminal:
 streamlit run dashboard/app.py --server.port 8501
 ```
 
-The dashboard accepts a webcam index such as `0`, an RTSP URL, or a local video-file path. It does not upload a video file to the server.
+The dashboard accepts an uploaded video, a local video-file path, a webcam
+index such as `0`, or an RTSP URL.
 
 The headless pipeline can also be run directly:
 
@@ -118,20 +128,27 @@ For each decoded frame:
 
 1. YOLO returns detected boxes, class IDs, labels, and confidence values.
 2. A frame is positive when at least one detection matches the configured violence class.
-3. The Boolean result enters a fixed-length window.
-4. An event becomes eligible when all N positions in the window are positive.
-5. After a trigger, the window is cleared.
+3. N consecutive positive frames start one event and latch it active.
+4. Continued positive frames do not emit another event.
+5. K consecutive negative frames release the latch so a later positive run
+   can become a new event.
 
-With a fixed N, this is functionally an N-consecutive-positive rule: a negative result must leave the window before a trigger can occur.
+N controls evidence required at onset. K separately controls tolerance for
+short negative gaps inside an active event. Notification cooldown does not
+define event identity and does not suppress local event persistence.
 
 Default configuration:
 
 ```text
-CONFIDENCE_THRESHOLD=0.55
+CONFIDENCE_THRESHOLD=0.70
 FRAME_CONSISTENCY=5
+NEGATIVE_RELEASE_FRAMES=3
 ALERT_COOLDOWN_SECONDS=30
 FPS_TARGET=20
 ```
+
+The C=0.70, N=5, K=3 default is provisional and selected only from the
+committed two-clip case study. It must not be described as generally optimal.
 
 `FPS_TARGET` limits ingestion rate. The dashboard's current FPS value is processed frames divided by elapsed runtime; it is not a hardware benchmark.
 
@@ -147,7 +164,15 @@ The upstream checkpoint exposes `non_violence` and `violence`, with class ID 1 t
 
 ## Repeatable filter comparison
 
-Each sample video is inferred once into a saved frame-level trace. The 1, 3, 5, and 10-frame filters then replay the same detector decisions, so differences in false triggers and alert delay come from the temporal rule rather than from separate inference runs.
+Each sample video is inferred once at a 0.25 capture floor into a saved
+frame-level trace. Confidence thresholds of 0.40, 0.55, 0.70, and 0.85;
+positive thresholds of 1, 3, 5, and 10; and negative-release values of 1 and
+3 then replay the same detector outputs. Differences therefore come from the
+decision settings rather than separate inference runs.
+
+```bash
+python -m evaluation.temporal evaluation/case_study/violence_trace.csv --confidence-thresholds 0.40,0.55,0.70,0.85 --thresholds 1,3,5,10 --negative-release-frames 1,3
+```
 
 ## License and responsible use
 
