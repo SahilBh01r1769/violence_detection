@@ -1,14 +1,14 @@
 # Temporal Violence Event Filter
 
-A small streaming-systems experiment about one question:
+This project explores how noisy frame-level violence classifications can be
+converted into persistent, alertable events. A pretrained YOLOv8 checkpoint
+supplies frame detections; the project contribution is the surrounding
+streaming pipeline, temporal state machine, event persistence, Telegram
+integration, runtime diagnostics, and reproducible threshold experiment.
 
-> How should noisy frame-level classifications be converted into an alertable event?
+![Measured temporal-filter trade-off](evaluation/case_study/tradeoff.svg)
 
-The project uses a third-party YOLOv8 checkpoint as a source of per-frame detections. Its original contribution is the surrounding pipeline: video ingestion, temporal filtering, event creation, delivery-state handling, runtime status, and repeatable comparison of filtering thresholds.
-
-This is not a trained-from-scratch model, a benchmark of model accuracy, or a production safety system.
-
-## Problem
+## Problem and approach
 
 A frame classifier can alternate between positive and negative predictions during the same scene. Triggering on every positive frame produces noisy duplicate alerts. Waiting for several positive frames reduces noise but delays the event.
 
@@ -22,71 +22,52 @@ records:
 - delay introduced by negative-frame release;
 - detected and missed ground-truth events.
 
-The repository will report measurements only when they have been produced from identified sample videos. Passing unit tests are not presented as model-accuracy or performance evidence.
+The same saved detector traces are replayed through every temporal setting, so
+changes in results come from the event policy rather than repeated inference.
 
-## Current pipeline
-
-```text
-video source
-    -> OpenCV frame reader
-    -> pretrained YOLO inference
-    -> violent / non-violent frame decision
-    -> N-positive / K-negative temporal filter
-    -> persisted local event and screenshot
-    -> optional Telegram submission and separate outcome
+```mermaid
+flowchart LR
+    A["Video source"] --> B["YOLO frame detections"]
+    B --> C["N-positive / K-negative filter"]
+    C --> D["Local event + screenshot"]
+    D --> E["API + dashboard"]
+    D --> F["Optional Telegram"]
 ```
 
 The capture and inference path runs in one processing loop. The API runs that
 loop in a background thread. Telegram submission uses a separate worker.
 Background execution does not guarantee dashboard responsiveness under load.
 
-## Scope
-
-The core experiment includes:
-
-- webcam, RTSP, uploaded-video, or local video-path ingestion;
-- a pinned third-party YOLOv8 fight/violence checkpoint;
-- configurable detection confidence;
-- an N-frame consecutive-positive event start and K-frame negative release;
-- local event history and screenshots;
-- FastAPI status and control endpoints;
-- a small Streamlit experiment view;
-- unit tests and replayable temporal-filter evaluation.
-
-## Non-goals
-
-The project does not claim:
-
-- ownership or training of the supplied checkpoint;
-- calibrated violence probabilities;
-- validated model accuracy;
-- guaranteed real-time throughput on every machine;
-- reliable safety or surveillance use;
-- cloud-scale or production-ready deployment;
-- recipient viewing or action after a provider accepts a notification.
-
-YOLO confidence is treated as detector confidence, not as a calibrated probability that a violent event is occurring.
-
-## Evidence status
+## Measured result
 
 The committed two-clip case study replays 848 nonviolent observations and 694
 violent observations through 32 combinations of confidence, positive-frame,
 and negative-release settings. The committed JSON is checked against fresh
 replay by the test suite.
 
-The provisional C=0.70, N=5, K=3 setting produced three false events on the
-meeting clip and eight triggers, seven of them duplicates, inside the single
-continuous violent interval. Its first alert occurred 1.7917 seconds into
-that interval in video time. No tested setting both eliminated false events
-and detected the violent clip. See
-[`evaluation/case_study`](evaluation/case_study/README.md) for the sources,
-annotations, complete outputs, reproduction commands, and limitations.
+| C | N | K | False events: meeting | Violent-clip triggers | Duplicates | First alert |
+| ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 0.40 | 1 | 1 | 29 | 81 | 80 | 0.0000 s |
+| 0.55 | 5 | 1 | 5 | 10 | 9 | 1.7917 s |
+| **0.70** | **5** | **3** | **3** | **8** | **7** | **1.7917 s** |
+| 0.70 | 10 | 3 | 1 | 1 | 0 | 28.0833 s |
+| 0.85 | 1 | 1 | 0 | 0 | 0 | missed |
 
-These two clips demonstrate temporal trade-offs but do not estimate general
-model accuracy. The measurements do not establish RTSP recovery, end-to-end
-wall-clock latency, or a general FPS figure. The test suite separately covers
-temporal state transitions, persistence and notification failure paths,
-runtime error reporting, API validation, and source-label redaction.
+The provisional default is C=0.70, N=5, K=3. It reduced false and duplicate
+events compared with the earlier C=0.55, N=5, K=1 policy without increasing
+the measured first-alert delay. The stronger N=10 setting delayed the alert
+until the end of the violent clip, while C=0.85 missed it.
+
+| Clip | Frames | FPS | Annotation |
+| --- | ---: | ---: | --- |
+| [Work meeting](https://mixkit.co/free-stock-video/people-having-a-work-meeting-around-a-table-4547/) | 848 | 30 | Nonviolent throughout |
+| [Mixed martial arts](https://mixkit.co/free-stock-video/strong-female-mixed-martial-arts-fighter-40991/) | 694 | 24 | Violent throughout |
+
+The complete 64-row result table is in
+[`evaluation/case_study/summary.csv`](evaluation/case_study/summary.csv).
+The saved traces, annotations, full matrices, and capture procedure are in
+[`evaluation/case_study`](evaluation/case_study/README.md). More varied scenes
+and clips with separate violent intervals are the next evaluation step.
 
 ## Run locally
 
@@ -255,7 +236,7 @@ Run one pipeline process against a history directory. Local JSON persistence
 has no coordination for multiple independent writers. Stop is cooperative;
 an in-progress OpenCV read or model call can delay shutdown.
 
-## Verification and scope
+## Verification and limitations
 
 ```bash
 pip install -r requirements-dev.txt
@@ -268,20 +249,19 @@ mocked Telegram acceptance/rejection, upload storage, and exact replay of
 the two saved traces. Synthetic and mocked checks establish implementation
 behavior. Saved real detector traces establish only this case study.
 
-The operating point was selected on the same two clips being reported, with
-no independent holdout. It is a descriptive selection, not evidence of
-generalization. Ground truth is the owner's whole-clip annotation; it has not
-been independently reviewed. The capture artifacts do not include the local
-checkpoint hash or exact dependency versions, so bit-for-bit re-inference
-cannot be guaranteed. Replay of the committed scores is reproducible.
+| Project claim | Evidence |
+| --- | --- |
+| Runtime and replay use the same temporal semantics | State-machine and replay tests |
+| Events persist through notification suppression or failure | Pipeline and alert-manager tests |
+| Result files match replayed detector traces | Case-study evidence test |
+| Telegram submits an event screenshot | HTTP integration tests and a user-verified live receipt |
+| Runtime failures remain visible through the API | Pipeline and API failure-path tests |
 
-The model remains pretrained and frame-based. No new model was trained.
-Email, Twilio/WhatsApp, generic dashboard analytics, the unused training
-helper, and unverified Docker deployment files have been removed. Plotly and
-direct pandas usage were removed with analytics; Streamlit may still install
-pandas transitively. The supported workflow is local API plus dashboard or
-the headless pipeline. Real-time latency, general accuracy, RTSP recovery,
-and sustained unattended operation remain unverified.
+The model is pretrained and frame-based. The two-clip result is a controlled
+case study rather than a general accuracy estimate. Alert delay is measured in
+video time; end-to-end latency and sustained RTSP operation have not yet been
+benchmarked. New captures record source and model hashes plus exact inference
+dependency versions.
 
 ## License and responsible use
 
