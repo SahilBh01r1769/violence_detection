@@ -180,6 +180,16 @@ decision settings rather than separate inference runs.
 python -m evaluation.temporal evaluation/case_study/violence_trace.csv --confidence-thresholds 0.40,0.55,0.70,0.85 --thresholds 1,3,5,10 --negative-release-frames 1,3
 ```
 
+Export one combined table and a dependency-free SVG trade-off plot:
+
+```bash
+python -m evaluation.report --trace nonviolence=evaluation/case_study/nonviolence_trace.csv --trace violence=evaluation/case_study/violence_trace.csv --csv evaluation/case_study/summary.csv --svg evaluation/case_study/tradeoff.svg
+```
+
+New trace captures also create a `.metadata.json` sidecar containing SHA-256
+hashes for the source video and checkpoint plus the Python, Ultralytics,
+OpenCV, and NumPy versions used for inference.
+
 ## Local events and optional Telegram
 
 Every qualified event is recorded before notification policy is considered.
