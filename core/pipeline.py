@@ -20,6 +20,8 @@ from config import (
     FRAME_CONSISTENCY,
     MODEL_PATH,
     NEGATIVE_RELEASE_FRAMES,
+    ROLLING_WINDOW_SIZE,
+    TEMPORAL_STRATEGY,
     VIDEO_SOURCE,
     VIOLENCE_CLASSES,
     VIOLENCE_CLASS_IDS,
@@ -57,6 +59,8 @@ class DetectionPipeline:
         confidence: float = CONFIDENCE_THRESHOLD,
         frame_consistency: int = FRAME_CONSISTENCY,
         negative_release_frames: int = NEGATIVE_RELEASE_FRAMES,
+        temporal_strategy: str = TEMPORAL_STRATEGY,
+        rolling_window_size: int = ROLLING_WINDOW_SIZE,
         cooldown_seconds: int = ALERT_COOLDOWN_SECONDS,
         enable_telegram: bool = ENABLE_TELEGRAM_ALERTS,
     ):
@@ -66,11 +70,13 @@ class DetectionPipeline:
         self._running = False
         self.detector = ViolenceDetector(
             MODEL_PATH,
-            confidence,
-            frame_consistency,
-            negative_release_frames,
-            VIOLENCE_CLASSES,
-            VIOLENCE_CLASS_IDS,
+            confidence=confidence,
+            frame_consistency=frame_consistency,
+            negative_release_frames=negative_release_frames,
+            violence_classes=VIOLENCE_CLASSES,
+            violence_class_ids=VIOLENCE_CLASS_IDS,
+            temporal_strategy=temporal_strategy,
+            rolling_window_size=rolling_window_size,
         )
         self.alert_manager = AlertManager(
             location,

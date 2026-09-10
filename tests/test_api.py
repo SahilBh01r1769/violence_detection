@@ -9,6 +9,8 @@ class FakeDetector:
     confidence = 0.55
     frame_consistency = 5
     negative_release_frames = 1
+    temporal_strategy = "consecutive"
+    rolling_window_size = 7
     event_active = False
     positive_run = 2
     negative_run = 0
@@ -16,6 +18,9 @@ class FakeDetector:
         self.frame_consistency = value
     def set_negative_release_frames(self, value):
         self.negative_release_frames = value
+    def set_temporal_strategy(self, strategy, rolling_window_size):
+        self.temporal_strategy = strategy
+        self.rolling_window_size = rolling_window_size
 
 
 class FakeAlertManager:
@@ -130,6 +135,8 @@ def test_config_updates_all_supported_settings(monkeypatch):
             "confidence": 0.7,
             "frame_consistency": 7,
             "negative_release_frames": 3,
+            "temporal_strategy": "rolling_window",
+            "rolling_window_size": 9,
             "cooldown_seconds": 15,
             "enable_telegram": False,
         },
@@ -138,5 +145,7 @@ def test_config_updates_all_supported_settings(monkeypatch):
     assert pipeline.detector.confidence == 0.7
     assert pipeline.detector.frame_consistency == 7
     assert pipeline.detector.negative_release_frames == 3
+    assert pipeline.detector.temporal_strategy == "rolling_window"
+    assert pipeline.detector.rolling_window_size == 9
     assert pipeline.alert_manager.cooldown == 15
     assert not pipeline.alert_manager.enable_telegram

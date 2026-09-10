@@ -12,7 +12,7 @@ import cv2
 import numpy as np
 
 from config import AUTO_DOWNLOAD_MODEL, MODEL_DOWNLOAD_URL, VIOLENCE_CLASS_IDS
-from core.temporal import TemporalEventFilter
+from core.temporal import build_temporal_filter
 from utils.download_model import ensure_model
 
 logger = logging.getLogger(__name__)
@@ -60,10 +60,14 @@ class ViolenceDetector:
         negative_release_frames: int = 1,
         violence_classes: Optional[List[str]] = None,
         violence_class_ids: Optional[set[int]] = None,
+        temporal_strategy: str = "consecutive",
+        rolling_window_size: int = 7,
     ):
         self.confidence = confidence
         self.frame_consistency = max(1, int(frame_consistency))
         self.negative_release_frames = max(1, int(negative_release_frames))
+        self.temporal_strategy = temporal_strategy.strip().lower()
+        self.rolling_window_size = max(1, int(rolling_window_size))
         self.violence_classes = {
             self._normalise_name(name)
             for name in (
@@ -79,9 +83,11 @@ class ViolenceDetector:
         self._model = None
         self._model_path = Path(model_path)
         self._frame_id = 0
-        self._temporal = TemporalEventFilter(
+        self._temporal = build_temporal_filter(
+            self.temporal_strategy,
             self.frame_consistency,
             self.negative_release_frames,
+            self.rolling_window_size,
         )
         self._load_model()
 
@@ -124,10 +130,17 @@ class ViolenceDetector:
         self.negative_release_frames = max(1, int(value))
         self._reset_event_state()
 
+    def set_temporal_strategy(self, strategy: str, rolling_window_size: int) -> None:
+        self.temporal_strategy = strategy.strip().lower()
+        self.rolling_window_size = max(1, int(rolling_window_size))
+        self._reset_event_state()
+
     def _reset_event_state(self) -> None:
-        self._temporal = TemporalEventFilter(
+        self._temporal = build_temporal_filter(
+            self.temporal_strategy,
             self.frame_consistency,
             self.negative_release_frames,
+            self.rolling_window_size,
         )
 
     def process_frame(self, frame: np.ndarray) -> DetectionResult:
@@ -160,7 +173,7 @@ class ViolenceDetector:
 
     @property
     def positive_run(self) -> int:
-        return self._temporal.positive_run
+        return getattr(self._temporal, "positive_count", self._temporal.positive_run)
 
     @property
     def negative_run(self) -> int:

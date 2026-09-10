@@ -14,7 +14,7 @@ from pathlib import Path
 from statistics import mean
 from typing import Iterable, Sequence
 
-from core.temporal import TemporalEventFilter
+from core.temporal import RollingWindowEventFilter, TemporalEventFilter
 
 
 @dataclass(frozen=True)
@@ -94,6 +94,18 @@ def replay_temporal_filter(
     negative_release_frames: int = 1,
     detector_confidence: float | None = None,
 ) -> TemporalReplay:
+    return _replay_with_filter(
+        observations,
+        TemporalEventFilter(threshold, negative_release_frames),
+        detector_confidence,
+    )
+
+
+def _replay_with_filter(
+    observations: Sequence[FrameObservation],
+    temporal_filter,
+    detector_confidence: float | None,
+) -> TemporalReplay:
     if detector_confidence is not None:
         if not 0.0 <= detector_confidence <= 1.0:
             raise ValueError("detector_confidence must be between 0 and 1")
@@ -114,7 +126,6 @@ def replay_temporal_filter(
                 f"({highest_capture_floor:g})"
             )
 
-    temporal_filter = TemporalEventFilter(threshold, negative_release_frames)
     triggers: list[int] = []
     active_intervals: list[tuple[int, int]] = []
     release_delays: list[float] = []
@@ -163,6 +174,24 @@ def replay_temporal_filter(
     )
 
 
+def replay_rolling_window_filter(
+    observations: Sequence[FrameObservation],
+    minimum_positives: int,
+    window_size: int,
+    negative_release_frames: int = 1,
+    detector_confidence: float | None = None,
+) -> TemporalReplay:
+    return _replay_with_filter(
+        observations,
+        RollingWindowEventFilter(
+            minimum_positives,
+            window_size,
+            negative_release_frames,
+        ),
+        detector_confidence,
+    )
+
+
 def trigger_indices(
     observations: Sequence[FrameObservation],
     threshold: int,
@@ -207,6 +236,45 @@ def evaluate_threshold(
         negative_release_frames,
         detector_confidence,
     )
+    return _evaluate_replay(
+        observations,
+        replay,
+        threshold,
+        negative_release_frames,
+        detector_confidence,
+    )
+
+
+def evaluate_rolling_window(
+    observations: Sequence[FrameObservation],
+    minimum_positives: int,
+    window_size: int,
+    negative_release_frames: int = 1,
+    detector_confidence: float | None = None,
+) -> ThresholdMetrics:
+    replay = replay_rolling_window_filter(
+        observations,
+        minimum_positives,
+        window_size,
+        negative_release_frames,
+        detector_confidence,
+    )
+    return _evaluate_replay(
+        observations,
+        replay,
+        minimum_positives,
+        negative_release_frames,
+        detector_confidence,
+    )
+
+
+def _evaluate_replay(
+    observations: Sequence[FrameObservation],
+    replay: TemporalReplay,
+    positive_frames: int,
+    negative_release_frames: int,
+    detector_confidence: float | None,
+) -> ThresholdMetrics:
     triggers = replay.trigger_indices
     events = ground_truth_events(observations)
     false_triggers = sum(
@@ -241,7 +309,7 @@ def evaluate_threshold(
 
     return ThresholdMetrics(
         confidence_threshold=detector_confidence,
-        positive_frames=threshold,
+        positive_frames=positive_frames,
         negative_release_frames=negative_release_frames,
         total_triggers=len(triggers),
         false_triggers=false_triggers,

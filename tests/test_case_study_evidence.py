@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 
 from evaluation.temporal import compare_operating_points, load_trace
+from evaluation.compare_strategies import build_comparison_rows
 
 
 CASE_STUDY = Path(__file__).resolve().parents[1] / "evaluation" / "case_study"
@@ -90,3 +91,24 @@ def test_expanded_capture_metadata_is_consistent():
     }
     assert {item["python"] for item in metadata} == {"3.14.5"}
     assert {item["packages"]["ultralytics"] for item in metadata} == {"8.4.142"}
+
+
+def test_strategy_comparison_replays_exactly():
+    actual = build_comparison_rows(
+        EXPANDED_TRACES.items(),
+        confidence=0.70,
+        consecutive_frames=5,
+        rolling_minimum=5,
+        rolling_window=7,
+        negative_release_frames=3,
+    )
+    with (CASE_STUDY / "strategy_comparison.csv").open(
+        newline="", encoding="utf-8"
+    ) as handle:
+        expected = list(csv.DictReader(handle))
+
+    assert len(expected) == 16
+    assert [
+        {key: "" if value is None else str(value) for key, value in row.items()}
+        for row in actual
+    ] == expected

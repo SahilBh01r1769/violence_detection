@@ -6,6 +6,7 @@ from evaluation.temporal import (
     compare_temporal_settings,
     compare_thresholds,
     evaluate_threshold,
+    replay_rolling_window_filter,
     trigger_indices,
 )
 
@@ -174,3 +175,22 @@ def test_confidence_replay_rejects_inconsistent_capture_floors():
 
     with pytest.raises(ValueError, match="inconsistent"):
         trigger_indices(trace, 1, detector_confidence=0.55)
+
+
+def test_rolling_replay_uses_the_shared_window_filter_and_confidence():
+    trace = observations(
+        [True, True, False, True, False, False],
+        [True] * 6,
+    )
+
+    replay = replay_rolling_window_filter(
+        trace,
+        minimum_positives=3,
+        window_size=4,
+        negative_release_frames=2,
+        detector_confidence=0.7,
+    )
+
+    assert replay.trigger_indices == (3,)
+    assert replay.active_intervals == ((3, 4),)
+    assert replay.release_delays_seconds == pytest.approx((0.1,))

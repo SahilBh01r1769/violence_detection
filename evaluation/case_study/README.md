@@ -87,6 +87,30 @@ plots the false-trigger/delay trade-off. Metadata sidecars under `traces/`
 record the video hash, model hash, Python version, and inference dependency
 versions for each new capture.
 
+## Consecutive versus rolling-window policy
+
+The same eight traces were also replayed at C=0.70 and K=3 using:
+
+- baseline: five consecutive positive observations;
+- rolling alternative: at least five positives in the latest seven processed
+  observations.
+
+| Policy | False events | Duplicate triggers | Detected positive clips | Missed positive clips |
+| --- | ---: | ---: | ---: | ---: |
+| Consecutive N=5 | 3 | 9 | 2 | 1 |
+| Rolling M=5 of W=7 | 4 | 10 | 2 | 1 |
+
+The rolling alternative reduced the coarse intermittent-clip delay from 2.16
+to 1.92 video seconds. It also increased meeting false events from three to
+four and MMA duplicates from seven to eight. Fencing remained missed. These
+development traces therefore do not support replacing the consecutive default.
+
+The rolling filter starts evaluating immediately and triggers once M positives
+exist, even before W observations have accumulated. After triggering it uses
+the same K-negative release latch as the baseline. Release clears the window,
+so a later trigger requires fresh post-release evidence. The exact 16
+per-clip rows are in `strategy_comparison.csv`.
+
 ## Provisional operating point
 
 The application defaults to C=0.70, N=5, and K=3. This is provisional. On

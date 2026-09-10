@@ -21,6 +21,8 @@ from config import (
     ENABLE_TELEGRAM_ALERTS,
     FRAME_CONSISTENCY,
     NEGATIVE_RELEASE_FRAMES,
+    ROLLING_WINDOW_SIZE,
+    TEMPORAL_STRATEGY,
     VIDEO_SOURCE,
 )
 from core.pipeline import DetectionPipeline
@@ -103,6 +105,8 @@ def status():
         "confidence": _pipeline.detector.confidence,
         "frame_consistency": _pipeline.detector.frame_consistency,
         "negative_release_frames": _pipeline.detector.negative_release_frames,
+        "temporal_strategy": _pipeline.detector.temporal_strategy,
+        "rolling_window_size": _pipeline.detector.rolling_window_size,
         "event_active": _pipeline.detector.event_active,
         "positive_run": _pipeline.detector.positive_run,
         "negative_run": _pipeline.detector.negative_run,
@@ -150,6 +154,8 @@ class PipelineStartRequest(BaseModel):
     confidence: float = Field(CONFIDENCE_THRESHOLD, ge=0.0, le=1.0)
     frame_consistency: int = Field(FRAME_CONSISTENCY, ge=1, le=120)
     negative_release_frames: int = Field(NEGATIVE_RELEASE_FRAMES, ge=1, le=120)
+    temporal_strategy: str = Field(TEMPORAL_STRATEGY, pattern="^(consecutive|rolling_window)$")
+    rolling_window_size: int = Field(ROLLING_WINDOW_SIZE, ge=1, le=120)
     cooldown_seconds: int = Field(ALERT_COOLDOWN_SECONDS, ge=0, le=86400)
     enable_telegram: bool = ENABLE_TELEGRAM_ALERTS
 
@@ -174,6 +180,8 @@ def start_pipeline(req: PipelineStartRequest):
                 confidence=req.confidence,
                 frame_consistency=req.frame_consistency,
                 negative_release_frames=req.negative_release_frames,
+                temporal_strategy=req.temporal_strategy,
+                rolling_window_size=req.rolling_window_size,
                 cooldown_seconds=req.cooldown_seconds,
                 enable_telegram=req.enable_telegram,
             )
@@ -201,6 +209,8 @@ class PipelineConfigRequest(BaseModel):
     confidence: Optional[float] = Field(None, ge=0.0, le=1.0)
     frame_consistency: Optional[int] = Field(None, ge=1, le=120)
     negative_release_frames: Optional[int] = Field(None, ge=1, le=120)
+    temporal_strategy: Optional[str] = Field(None, pattern="^(consecutive|rolling_window)$")
+    rolling_window_size: Optional[int] = Field(None, ge=1, le=120)
     cooldown_seconds: Optional[int] = Field(None, ge=0, le=86400)
     enable_telegram: Optional[bool] = None
 
@@ -215,6 +225,11 @@ def update_config(req: PipelineConfigRequest):
         _pipeline.detector.set_frame_consistency(req.frame_consistency)
     if req.negative_release_frames is not None:
         _pipeline.detector.set_negative_release_frames(req.negative_release_frames)
+    if req.temporal_strategy is not None or req.rolling_window_size is not None:
+        _pipeline.detector.set_temporal_strategy(
+            req.temporal_strategy or _pipeline.detector.temporal_strategy,
+            req.rolling_window_size or _pipeline.detector.rolling_window_size,
+        )
     if req.cooldown_seconds is not None:
         _pipeline.alert_manager.cooldown = req.cooldown_seconds
     if req.enable_telegram is not None:

@@ -28,6 +28,8 @@ from config import (
     ENABLE_TELEGRAM_ALERTS,
     FRAME_CONSISTENCY,
     NEGATIVE_RELEASE_FRAMES,
+    ROLLING_WINDOW_SIZE,
+    TEMPORAL_STRATEGY,
 )
 from dashboard.video_input import persist_uploaded_video
 
@@ -195,6 +197,10 @@ def start_payload(source: str) -> dict:
         "negative_release_frames": int(
             setting("negative_release_frames", NEGATIVE_RELEASE_FRAMES)
         ),
+        "temporal_strategy": setting("temporal_strategy", TEMPORAL_STRATEGY),
+        "rolling_window_size": int(
+            setting("rolling_window_size", ROLLING_WINDOW_SIZE)
+        ),
         "cooldown_seconds": int(setting("cooldown", ALERT_COOLDOWN_SECONDS)),
         "enable_telegram": bool(
             setting("enable_telegram", ENABLE_TELEGRAM_ALERTS)
@@ -326,8 +332,9 @@ if page == "Pipeline":
     st.subheader("Temporal state")
     t1, t2, t3, t4 = st.columns(4)
     t1.metric("Event", "Active" if status.get("event_active") else "Idle")
+    strategy = status.get("temporal_strategy", setting("temporal_strategy", TEMPORAL_STRATEGY))
     t2.metric(
-        "Positive run",
+        "Window positives" if strategy == "rolling_window" else "Positive run",
         f"{status.get('positive_run', 0)} / {status.get('frame_consistency', setting('frame_consistency', FRAME_CONSISTENCY))}",
     )
     t3.metric(
@@ -335,9 +342,15 @@ if page == "Pipeline":
         f"{status.get('negative_run', 0)} / {status.get('negative_release_frames', setting('negative_release_frames', NEGATIVE_RELEASE_FRAMES))}",
     )
     t4.metric("Cooldown", f"{status.get('cooldown_remaining', 0):.0f}s")
+    qualification_text = (
+        f"M positives within W={status.get('rolling_window_size', setting('rolling_window_size', ROLLING_WINDOW_SIZE))} frames start an event; "
+        if strategy == "rolling_window"
+        else "N consecutive positive frames start an event; "
+    )
     st.caption(
         f"Decision confidence ≥ {status.get('confidence', setting('confidence', CONFIDENCE_THRESHOLD)):.2f}. "
-        "N positive frames start an event; K negative frames end it."
+        + qualification_text
+        + "K negative frames end it."
     )
 
     st.subheader("Events from this run")
@@ -426,7 +439,20 @@ elif page == "Settings":
     status = api_get("/status", {}) or {}
     with st.form("settings"):
         confidence = st.slider("Confidence threshold", 0.05, 1.0, float(setting("confidence", CONFIDENCE_THRESHOLD)), 0.05)
-        frame_consistency = st.number_input("Consecutive violent frames required", 1, 120, int(setting("frame_consistency", FRAME_CONSISTENCY)))
+        frame_consistency = st.number_input("Positive observations required (N or M)", 1, 120, int(setting("frame_consistency", FRAME_CONSISTENCY)))
+        temporal_strategy = st.selectbox(
+            "Temporal strategy",
+            ["consecutive", "rolling_window"],
+            index=0 if setting("temporal_strategy", TEMPORAL_STRATEGY) == "consecutive" else 1,
+            format_func=lambda value: "Consecutive frames" if value == "consecutive" else "Rolling-window voting",
+        )
+        rolling_window_size = st.number_input(
+            "Rolling window size W",
+            int(frame_consistency),
+            120,
+            int(setting("rolling_window_size", ROLLING_WINDOW_SIZE)),
+            disabled=temporal_strategy != "rolling_window",
+        )
         negative_release_frames = st.number_input(
             "Consecutive negative frames to end an event",
             1,
@@ -444,6 +470,8 @@ elif page == "Settings":
         st.session_state.update(
             confidence=confidence,
             frame_consistency=int(frame_consistency),
+            temporal_strategy=temporal_strategy,
+            rolling_window_size=int(rolling_window_size),
             negative_release_frames=int(negative_release_frames),
             cooldown=int(cooldown),
             location=location,
@@ -455,6 +483,8 @@ elif page == "Settings":
                 {
                     "confidence": confidence,
                     "frame_consistency": int(frame_consistency),
+                    "temporal_strategy": temporal_strategy,
+                    "rolling_window_size": int(rolling_window_size),
                     "negative_release_frames": int(negative_release_frames),
                     "cooldown_seconds": int(cooldown),
                     "enable_telegram": enable_telegram,

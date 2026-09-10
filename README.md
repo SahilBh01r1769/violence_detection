@@ -312,6 +312,30 @@ The current default was selected only from this case study and should **not** be
 
 ---
 
+## Consecutive Frames vs Rolling-Window Voting
+
+A second deterministic policy was replayed on the same 4,213 saved observations
+at C=0.70 and K=3. The baseline requires five consecutive positives. The
+alternative triggers after at least five positives in the latest seven
+processed frames.
+
+| Policy | False events | Duplicate triggers | Positive clips detected | Positive clips missed |
+| --- | ---: | ---: | ---: | ---: |
+| Consecutive N=5 | 3 | 9 | 2 | 1 |
+| Rolling M=5 of W=7 | 4 | 10 | 2 | 1 |
+
+Rolling voting shortened the coarse intermittent-clip delay from 2.16 to 1.92
+video seconds, but added one meeting false event and one MMA duplicate. Fencing
+remained missed. This measured trade-off does not justify changing the runtime
+default. The 16 per-clip rows are committed in
+[`strategy_comparison.csv`](evaluation/case_study/strategy_comparison.csv).
+
+The rolling policy can trigger during startup as soon as M positives have been
+observed. Its active-event latch releases after K consecutive negatives, then
+clears the old window so rearming requires fresh evidence.
+
+---
+
 # Measured Trade-Off
 
 ![Measured temporal-filter trade-off](evaluation/case_study/tradeoff.svg)
@@ -353,6 +377,18 @@ python -m evaluation.report \
   --trace violence=evaluation/case_study/violence_trace.csv \
   --csv evaluation/case_study/summary.csv \
   --svg evaluation/case_study/tradeoff.svg
+```
+
+Compare the consecutive default with rolling-window voting on identical traces:
+
+```bash
+python -m evaluation.compare_strategies \
+  --trace original_nonviolence=evaluation/case_study/nonviolence_trace.csv \
+  --trace original_violence=evaluation/case_study/violence_trace.csv \
+  --confidence 0.70 --consecutive-frames 5 \
+  --rolling-minimum 5 --rolling-window 7 \
+  --negative-release-frames 3 \
+  --csv strategy_comparison.csv
 ```
 
 New trace captures also generate a metadata sidecar containing:
@@ -468,9 +504,16 @@ Default temporal settings:
 CONFIDENCE_THRESHOLD=0.70
 FRAME_CONSISTENCY=5
 NEGATIVE_RELEASE_FRAMES=3
+TEMPORAL_STRATEGY=consecutive
+ROLLING_WINDOW_SIZE=7
 ALERT_COOLDOWN_SECONDS=30
 FPS_TARGET=20
 ```
+
+`FRAME_CONSISTENCY` is N for the consecutive policy and M for rolling-window
+voting. `ROLLING_WINDOW_SIZE` is used only when
+`TEMPORAL_STRATEGY=rolling_window`, and must be at least M. The measured
+comparison above did not support changing the default from `consecutive`.
 
 ### `CONFIDENCE_THRESHOLD`
 
@@ -682,7 +725,7 @@ Planned work includes:
 
 * expanding the evaluation set with more violent and nonviolent clips;
 * adding additional hard negatives such as sports, running, dancing, arguments, and rapid motion;
-* comparing the current consecutive-frame filter with a rolling-window or confidence-smoothing strategy;
+* testing additional rolling-window settings on held-out clips without selecting them on the current development traces;
 * evaluating time-based event qualification rather than frame-count-only thresholds;
 * measuring end-to-end alert latency;
 * testing longer-running RTSP streams.

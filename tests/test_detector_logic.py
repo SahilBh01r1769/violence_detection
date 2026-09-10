@@ -24,11 +24,19 @@ class ScriptedModel:
         return [prediction]
 
 
-def detector_for(decisions, frame_consistency, negative_release_frames=1):
+def detector_for(
+    decisions,
+    frame_consistency,
+    negative_release_frames=1,
+    temporal_strategy="consecutive",
+    rolling_window_size=7,
+):
     detector = ViolenceDetector.__new__(ViolenceDetector)
     detector.confidence = 0.55
     detector.frame_consistency = frame_consistency
     detector.negative_release_frames = negative_release_frames
+    detector.temporal_strategy = temporal_strategy
+    detector.rolling_window_size = rolling_window_size
     detector.violence_classes = {"violence"}
     detector.violence_class_ids = {1}
     detector._model = ScriptedModel(decisions)
@@ -160,6 +168,25 @@ def test_three_negative_frames_release_event_before_new_positive_run():
         True,
         False,
         False,
+        False,
+        False,
+        False,
+        True,
+    ]
+
+
+def test_detector_can_use_rolling_window_policy():
+    decisions = [True, True, False, True]
+    detector = detector_for(
+        decisions,
+        frame_consistency=3,
+        negative_release_frames=2,
+        temporal_strategy="rolling_window",
+        rolling_window_size=4,
+    )
+    frame = np.zeros((10, 10, 3), dtype=np.uint8)
+
+    assert [detector.process_frame(frame).alert_triggered for _ in decisions] == [
         False,
         False,
         False,

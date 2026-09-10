@@ -1,0 +1,17 @@
+clip,strategy,minimum_positives,window_size,confidence_threshold,negative_release_frames,total_triggers,false_triggers,duplicate_triggers,detected_events,missed_events,mean_alert_delay_seconds,mean_release_delay_seconds,merged_ground_truth_events
+original_nonviolence,consecutive,5,5,0.7,3,3,3,0,0,0,,0.0667,0
+original_nonviolence,rolling_window,5,7,0.7,3,4,4,0,0,0,,0.0667,0
+original_violence,consecutive,5,5,0.7,3,8,0,7,1,0,1.7917,0.0833,0
+original_violence,rolling_window,5,7,0.7,3,9,0,8,1,0,1.7917,0.0833,0
+crowded_nonviolent,consecutive,5,5,0.7,3,0,0,0,0,0,,,0
+crowded_nonviolent,rolling_window,5,7,0.7,3,0,0,0,0,0,,,0
+nonviolent_contact,consecutive,5,5,0.7,3,0,0,0,0,0,,,0
+nonviolent_contact,rolling_window,5,7,0.7,3,0,0,0,0,0,,,0
+nonviolent_walking,consecutive,5,5,0.7,3,0,0,0,0,0,,,0
+nonviolent_walking,rolling_window,5,7,0.7,3,0,0,0,0,0,,,0
+soldiers_with_guns,consecutive,5,5,0.7,3,0,0,0,0,0,,,0
+soldiers_with_guns,rolling_window,5,7,0.7,3,0,0,0,0,0,,,0
+fencing,consecutive,5,5,0.7,3,0,0,0,0,1,,,0
+fencing,rolling_window,5,7,0.7,3,0,0,0,0,1,,,0
+intermittent_violence,consecutive,5,5,0.7,3,3,0,2,1,0,2.16,0.08,0
+intermittent_violence,rolling_window,5,7,0.7,3,3,0,2,1,0,1.92,0.08,0
