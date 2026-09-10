@@ -1,29 +1,23 @@
-# Temporal Violence Event Detection
+# Real-Time Violence Event Detection
 
-A real-time video monitoring system that converts noisy frame-level violence predictions into persistent, alertable events.
+A video monitoring system that turns noisy frame-level violence predictions into persistent events that can be reviewed, stored, and alerted on.
 
-The project uses a pretrained YOLOv8 violence detector for frame inference, then adds a custom temporal decision layer, event persistence, API, Streamlit dashboard, Telegram alerts, runtime diagnostics, and a reproducible threshold-evaluation pipeline.
+The project uses a pretrained YOLOv8 violence detector for frame inference, then adds the engineering around it: a custom temporal decision layer, event persistence, FastAPI controls, a Streamlit dashboard, Telegram alerts, runtime diagnostics, and reproducible threshold evaluation.
 
-The main engineering problem is not simply detecting a positive frame. It is deciding **when a sequence of noisy predictions should become one real event**.
+The central problem is not simply detecting a positive frame. It is deciding **when a sequence of noisy predictions should become one real event**.
 
----
+## Project snapshot
 
-## Why this project exists
-
-Frame-level classifiers can fluctuate rapidly during the same scene:
-
-```text
-positive → positive → negative → positive → positive ...
-```
-
-Triggering an alert on every positive frame creates:
-
-* duplicate alerts,
-* false alarms,
-* unstable event boundaries,
-* poor operator experience.
-
-This project adds a temporal event filter on top of the detector.
+| Area | Current implementation |
+|---|---|
+| Frame inference | Pretrained YOLOv8 violence checkpoint |
+| Event logic | Consecutive N-positive / K-negative state machine |
+| Alternative evaluated | Rolling M-of-W voting |
+| Evaluation | 4,213 saved frame observations across 32 temporal configurations |
+| Reviewed clips | 8 violent, nonviolent, and hard-negative scenes |
+| Runtime interfaces | FastAPI + Streamlit |
+| Alerts | Optional Telegram image notifications |
+| Verification | Automated tests + committed detector traces and result tables |
 
 ```mermaid
 flowchart LR
@@ -36,56 +30,26 @@ flowchart LR
     D --> H["Optional Telegram alert"]
 ```
 
-An event begins only after enough consecutive positive observations and remains active until enough negative observations are seen.
-
-This converts individual predictions into a more useful event stream.
-
 ---
 
-# Key Features
+## Why temporal event filtering matters
 
-* Real-time violence inference using a pretrained YOLOv8 checkpoint
-* Custom **N-positive / K-negative temporal state machine**
-* Configurable confidence and temporal thresholds
-* Persistent local event history
-* Automatic event screenshots
-* FastAPI runtime backend
-* Streamlit monitoring dashboard
-* Video upload, local file, webcam, and RTSP sources
-* Optional Telegram image alerts
-* Notification cooldown without dropping detected events
-* Runtime and failure diagnostics
-* Reproducible temporal-filter evaluation
-* Saved detector traces for threshold replay
-* Automated tests covering pipeline, API, event logic, alerts, and evaluation
+Frame-level classifiers can fluctuate rapidly during the same scene:
 
----
+```text
+positive → positive → negative → positive → positive ...
+```
 
-# Main Engineering Contribution
+Alerting on every positive frame creates duplicate alerts, unstable event boundaries, and unnecessary false alarms. This project introduces an event layer on top of the detector.
 
-The pretrained model provides frame-level detections.
-
-The main contribution of this repository is the system surrounding those detections.
-
-## Temporal event state machine
-
-A frame is considered positive when at least one configured violence class is detected.
-
-The filter then applies two independent rules:
+The default policy uses two rules:
 
 ```text
 N positive frames → start event
 K negative frames → release event
 ```
 
-For example:
-
-```text
-N = 5
-K = 3
-```
-
-means five consecutive positive observations are required before an event is created, while three consecutive negative observations are required before the event becomes inactive again.
+For example, with `N=5` and `K=3`, five consecutive positive observations are required before an event is created, while three consecutive negative observations release the active event.
 
 ```text
 Frames:
@@ -96,61 +60,23 @@ idle
       └──────── active event ────────┘
 ```
 
-The state machine prevents every positive frame from becoming a separate alert.
-
-It is implemented independently from the model and is shared by both live inference and offline trace replay.
+The state machine is implemented independently from the model and is shared by live inference and offline trace replay.
 
 ---
 
-# Architecture
+## Main engineering contribution
 
-```text
-violence_detection/
-│
-├── core/
-│   ├── detector.py
-│   ├── temporal.py
-│   ├── pipeline.py
-│   └── stream.py
-│
-├── alerts/
-│   ├── alert_manager.py
-│   └── telegram_alert.py
-│
-├── api/
-│   └── server.py
-│
-├── dashboard/
-│   └── app.py
-│
-├── evaluation/
-│   └── case_study/
-│
-├── tests/
-│
-├── config.py
-├── requirements.txt
-└── README.md
-```
+The pretrained checkpoint provides frame-level detections. The repository focuses on building a usable system around those detections.
 
-### `core/detector.py`
+### Detection and temporal logic
 
-Loads the YOLO model, converts predictions into structured detection results, determines whether each detection represents violence, and feeds the frame result into the temporal filter.
+`core/detector.py` loads the YOLO checkpoint, converts predictions into structured results, determines whether a configured violence class is present, and passes the frame decision into the temporal filter.
 
-### `core/temporal.py`
+`core/temporal.py` contains both the default consecutive-frame policy and the rolling-window alternative. It tracks event activation, release, positive evidence, and negative release evidence independently from model inference.
 
-Contains the standalone temporal event state machine.
+### Pipeline
 
-It tracks:
-
-* consecutive positive observations,
-* consecutive negative observations,
-* event activation,
-* event release.
-
-### `core/pipeline.py`
-
-Coordinates:
+`core/pipeline.py` coordinates the full runtime path:
 
 ```text
 video source
@@ -166,42 +92,11 @@ screenshot
 notification request
 ```
 
-It also records runtime state and failures so errors remain visible through the API and dashboard.
+Runtime state and failures are retained so the API and dashboard can distinguish normal completion, disconnection, manual stop, and inference/source errors.
 
-### `alerts/`
+### Event persistence and notification delivery
 
-Handles event persistence and optional Telegram delivery.
-
-Event creation and notification delivery are deliberately treated as separate concerns.
-
-### `api/`
-
-Exposes pipeline controls and runtime state through FastAPI.
-
-### `dashboard/`
-
-Provides an operator-facing Streamlit interface for:
-
-* source selection,
-* starting and stopping inference,
-* current annotated frame,
-* runtime status,
-* event history,
-* temporal settings,
-* screenshots,
-* notification results.
-
-### `evaluation/`
-
-Contains saved detector traces and tools for replaying them through multiple temporal configurations without rerunning inference.
-
----
-
-# Event Persistence vs Notification Delivery
-
-A detected event is recorded **before** notification policy is evaluated.
-
-This is intentional.
+Detected events are stored **before** notification policy is evaluated:
 
 ```text
 Violence event detected
@@ -215,86 +110,58 @@ Check notification policy
 Send Telegram if eligible
 ```
 
-This prevents events from disappearing simply because:
+This keeps event history independent from Telegram configuration, cooldowns, or delivery failures.
 
-* Telegram is disabled,
-* Telegram is not configured,
-* another notification is pending,
-* a cooldown is active,
-* delivery fails.
+| Notification status | Meaning |
+|---|---|
+| `not_attempted` | Notification was disabled or suppressed |
+| `queued` | Submission worker started |
+| `accepted` | Telegram API accepted the request |
+| `failed` | Submission failed or the outcome became unavailable |
 
-Notification state is stored separately.
-
-| Status          | Meaning                                         |
-| --------------- | ----------------------------------------------- |
-| `not_attempted` | Notification was disabled or suppressed         |
-| `queued`        | Submission worker started                       |
-| `accepted`      | Telegram API accepted the request               |
-| `failed`        | Submission failed or outcome became unavailable |
-
-Cooldown begins only after an accepted Telegram submission.
-
-Local event persistence is not suppressed by notification cooldown.
+Cooldown begins only after an accepted Telegram submission; it does not suppress local event creation.
 
 ---
 
-# Temporal Filter Evaluation
+## Evaluation
 
-The repository includes a controlled experiment measuring how different temporal settings affect event quality.
+The temporal layer is evaluated without rerunning YOLO for every configuration. Each sample video is inferred once and saved as a frame-level detector trace, then those exact predictions are replayed through different temporal settings.
 
-Instead of rerunning YOLO inference for every configuration, each sample video is inferred once and stored as a frame-level detector trace.
+The current case study uses **4,213 frame observations** across:
 
-Those exact predictions are then replayed through different temporal policies.
+- 4 confidence thresholds
+- 4 positive-frame thresholds
+- 2 negative-release thresholds
+- **32 configurations**
+- a **256-row combined result table**
 
-This isolates the effect of the event-filter settings from repeated model inference.
+The eight reviewed clips include:
 
-The current case study replays:
+**Nonviolent / hard-negative scenes**
+- meeting
+- crowded subway
+- students walking
+- close physical contact
+- soldiers holding weapons
 
-**4,213 frame observations**
+**Combat-like scenes**
+- mixed martial arts
+- intermittent punching
+- fencing
 
-across:
-
-* 4 confidence thresholds
-* 4 positive-frame thresholds
-* 2 negative-release thresholds
-
-for:
-
-**32 configurations**
-
-and produces a **256-row result table**.
-
----
-
-## Current Case Study
-
-The committed evaluation set contains eight reviewed clips covering:
-
-### Nonviolent / hard-negative scenes
-
-* meeting
-* crowded subway
-* students walking
-* close physical contact
-* soldiers holding weapons
-
-### Combat-like scenes
-
-* mixed martial arts
-* intermittent punching
-* fencing
+### Threshold trade-off
 
 A subset of the measured configurations:
 
-| Confidence | Positive N | Release K | False events on meeting | Violent-clip triggers | Duplicate triggers |  First alert |
-| ---------: | ---------: | --------: | ----------------------: | --------------------: | -----------------: | -----------: |
-|       0.40 |          1 |         1 |                      29 |                    81 |                 80 |     0.0000 s |
-|       0.55 |          5 |         1 |                       5 |                    10 |                  9 |     1.7917 s |
-|   **0.70** |      **5** |     **3** |                   **3** |                 **8** |              **7** | **1.7917 s** |
-|       0.70 |         10 |         3 |                       1 |                     1 |                  0 |    28.0833 s |
-|       0.85 |          1 |         1 |                       0 |                     0 |                  0 |       missed |
+| Confidence | Positive N | Release K | False events on meeting | Violent-clip triggers | Duplicate triggers | First alert |
+|---:|---:|---:|---:|---:|---:|---:|
+| 0.40 | 1 | 1 | 29 | 81 | 80 | 0.0000 s |
+| 0.55 | 5 | 1 | 5 | 10 | 9 | 1.7917 s |
+| **0.70** | **5** | **3** | **3** | **8** | **7** | **1.7917 s** |
+| 0.70 | 10 | 3 | 1 | 1 | 0 | 28.0833 s |
+| 0.85 | 1 | 1 | 0 | 0 | 0 | missed |
 
-The current provisional default is:
+The current case-study default is:
 
 ```text
 CONFIDENCE_THRESHOLD=0.70
@@ -302,63 +169,26 @@ FRAME_CONSISTENCY=5
 NEGATIVE_RELEASE_FRAMES=3
 ```
 
-The experiment demonstrates the trade-off between responsiveness and event stability.
-
-Lower thresholds respond quickly but generate significantly more false and duplicate events.
-
-Stronger thresholds reduce noise but can introduce large alert delays or cause events to be missed entirely.
-
-The current default was selected only from this case study and should **not** be interpreted as generally optimal.
-
----
-
-## Consecutive Frames vs Rolling-Window Voting
-
-A second deterministic policy was replayed on the same 4,213 saved observations
-at C=0.70 and K=3. The baseline requires five consecutive positives. The
-alternative triggers after at least five positives in the latest seven
-processed frames.
-
-| Policy | False events | Duplicate triggers | Positive clips detected | Positive clips missed |
-| --- | ---: | ---: | ---: | ---: |
-| Consecutive N=5 | 3 | 9 | 2 | 1 |
-| Rolling M=5 of W=7 | 4 | 10 | 2 | 1 |
-
-Rolling voting shortened the coarse intermittent-clip delay from 2.16 to 1.92
-video seconds, but added one meeting false event and one MMA duplicate. Fencing
-remained missed. This measured trade-off does not justify changing the runtime
-default. The 16 per-clip rows are committed in
-[`strategy_comparison.csv`](evaluation/case_study/strategy_comparison.csv).
-
-The rolling policy can trigger during startup as soon as M positives have been
-observed. Its active-event latch releases after K consecutive negatives, then
-clears the old window so rearming requires fresh evidence.
-
----
-
-# Measured Trade-Off
+The experiment shows the expected trade-off: permissive settings react quickly but create more false and duplicate events, while stronger settings improve stability at the cost of delay and missed detections.
 
 ![Measured temporal-filter trade-off](evaluation/case_study/tradeoff.svg)
 
-At the current provisional setting:
+At the selected setting, the additional nonviolent test clips remained clean while the MMA and intermittent-fighting clips were detected. Fencing remained a detector-level miss across the evaluated settings, illustrating the boundary between temporal filtering and the underlying classifier.
 
-```text
-Confidence = 0.70
-Positive frames = 5
-Negative release = 3
-```
+### Consecutive frames vs rolling-window voting
 
-the additional nonviolent test clips remained clean while the MMA and intermittent fighting clips were detected.
+A second deterministic policy was replayed on the same 4,213 observations at `C=0.70` and `K=3`. The baseline requires five consecutive positives; the alternative triggers after at least five positives in the latest seven processed frames.
 
-Fencing was not detected by the pretrained model at any evaluated configuration.
+| Policy | False events | Duplicate triggers | Positive clips detected | Positive clips missed |
+|---|---:|---:|---:|---:|
+| Consecutive N=5 | 3 | 9 | 2 | 1 |
+| Rolling M=5 of W=7 | 4 | 10 | 2 | 1 |
 
-This illustrates an important distinction:
-
-> The temporal filter can improve event stability, but it cannot recover events that the underlying frame classifier does not recognize.
+Rolling voting reduced the coarse intermittent-clip delay from 2.16 to 1.92 video seconds, but also added one meeting false event and one MMA duplicate. The measured trade-off therefore did not justify replacing the simpler consecutive-frame default. Per-clip results are committed in [`evaluation/case_study/strategy_comparison.csv`](evaluation/case_study/strategy_comparison.csv).
 
 ---
 
-# Reproducible Evaluation
+## Reproducing the evaluation
 
 Run a temporal replay:
 
@@ -369,7 +199,7 @@ python -m evaluation.temporal evaluation/case_study/violence_trace.csv \
   --negative-release-frames 1,3
 ```
 
-Generate the combined result table and trade-off plot:
+Generate the combined table and trade-off plot:
 
 ```bash
 python -m evaluation.report \
@@ -379,7 +209,7 @@ python -m evaluation.report \
   --svg evaluation/case_study/tradeoff.svg
 ```
 
-Compare the consecutive default with rolling-window voting on identical traces:
+Compare temporal strategies:
 
 ```bash
 python -m evaluation.compare_strategies \
@@ -391,102 +221,37 @@ python -m evaluation.compare_strategies \
   --csv strategy_comparison.csv
 ```
 
-New trace captures also generate a metadata sidecar containing:
-
-* source-video SHA-256
-* model-checkpoint SHA-256
-* Python version
-* Ultralytics version
-* OpenCV version
-* NumPy version
-
-This makes saved inference traces easier to reproduce and audit.
+New trace captures also generate metadata containing the source-video SHA-256, model-checkpoint SHA-256, Python version, Ultralytics version, OpenCV version, and NumPy version.
 
 ---
 
-# Running the Project
+## Running the project
 
 Python **3.11** is recommended.
 
-## 1. Create a virtual environment
-
 ```bash
 python -m venv venv
-```
-
-Activate it using the appropriate command for your operating system.
-
-## 2. Install dependencies
-
-```bash
 pip install -r requirements.txt
-```
-
-## 3. Download the model
-
-```bash
 python -m utils.download_model
 ```
 
-## 4. Configure environment variables
+Copy `.env.example` to `.env` in the repository root and update the required settings.
 
-Copy:
-
-```text
-.env.example
-```
-
-to:
-
-```text
-.env
-```
-
-in the repository root.
-
-Restart the API and dashboard after modifying configuration.
-
----
-
-# Start the API
+### Start the API
 
 ```bash
 python -m uvicorn api.server:app --host 0.0.0.0 --port 8000
 ```
 
----
-
-# Start the Dashboard
-
-In a second terminal:
+### Start the dashboard
 
 ```bash
 streamlit run dashboard/app.py --server.port 8501
 ```
 
-The dashboard supports:
+The dashboard supports webcam input, uploaded video, a local video path, and RTSP sources. The Pipeline page focuses on the current run, while older persisted records can be reviewed or exported from Event History.
 
-* webcam index such as `0` (the default selection)
-* uploaded video
-* local video-file path
-* RTSP URL
-
-The Pipeline page is scoped to the current run: it shows the current frame,
-temporal counters, runtime state, and events created since that run started.
-Older records remain persisted and can be reviewed or exported from the
-separate Event History page.
-
-Bounding boxes display the class and confidence returned by the checkpoint.
-Because the supplied specialized checkpoint exposes only `violence` and
-`non_violence`, it cannot identify general objects such as people or weapons.
-Doing that would require a second object-detection model and is intentionally
-outside this focused temporal-filter pipeline.
-
----
-
-# Run the Pipeline Directly
-
-The detection pipeline can also run without the dashboard:
+### Run the pipeline directly
 
 ```bash
 python -m core.pipeline \
@@ -496,7 +261,7 @@ python -m core.pipeline \
 
 ---
 
-# Configuration
+## Configuration
 
 Default temporal settings:
 
@@ -510,48 +275,17 @@ ALERT_COOLDOWN_SECONDS=30
 FPS_TARGET=20
 ```
 
-`FRAME_CONSISTENCY` is N for the consecutive policy and M for rolling-window
-voting. `ROLLING_WINDOW_SIZE` is used only when
-`TEMPORAL_STRATEGY=rolling_window`, and must be at least M. The measured
-comparison above did not support changing the default from `consecutive`.
+`FRAME_CONSISTENCY` is N for the consecutive policy and M for rolling-window voting. `ROLLING_WINDOW_SIZE` applies only to the rolling policy and must be at least M.
 
-### `CONFIDENCE_THRESHOLD`
+`ALERT_COOLDOWN_SECONDS` controls the interval between accepted Telegram submissions without suppressing locally recorded events.
 
-Minimum detector confidence considered during inference.
-
-### `FRAME_CONSISTENCY`
-
-Number of consecutive positive frames required to start an event.
-
-### `NEGATIVE_RELEASE_FRAMES`
-
-Number of consecutive negative frames required to release an active event.
-
-### `ALERT_COOLDOWN_SECONDS`
-
-Minimum interval between accepted Telegram submissions.
-
-This does **not** suppress local event creation.
-
-### `FPS_TARGET`
-
-Limits video ingestion rate.
-
-The dashboard FPS value represents:
-
-```text
-processed frames / elapsed runtime
-```
-
-and should not be interpreted as a hardware inference benchmark.
+`FPS_TARGET` limits video ingestion rate. Dashboard FPS represents processed frames divided by elapsed runtime; it is a runtime throughput indicator rather than a standardized inference benchmark.
 
 ---
 
-# Telegram Alerts
+## Telegram alerts
 
 Telegram integration is optional and disabled by default.
-
-Add the following values to `.env`:
 
 ```dotenv
 ENABLE_TELEGRAM_ALERTS=true
@@ -559,21 +293,17 @@ TELEGRAM_BOT_TOKEN=your_private_bot_token
 TELEGRAM_CHAT_ID=your_recipient_chat_id
 ```
 
-Create a bot through Telegram BotFather and send `/start` from the account that should receive alerts.
+Create a bot through Telegram BotFather, send `/start` from the recipient account, and use that conversation's chat ID. Eligible events send the saved event screenshot through the Telegram Bot API.
 
-The recipient chat ID must refer to the target conversation, not the bot itself.
-
-When an eligible event occurs, Telegram receives the saved event screenshot directly through the Telegram Bot API.
-
-The project owner successfully received Telegram event images during a live test on **September 8, 2026**.
-
-This demonstrates one validated working configuration, not guaranteed delivery under all network or runtime conditions.
+Telegram event images were successfully received during a live project test on **September 8, 2026**.
 
 ---
 
-# Runtime Behavior
+## Event history and runtime state
 
-The pipeline tracks explicit source states such as:
+Events are stored locally in `logs/event_history.json`. Records can include event ID, timestamp, detected class, confidence, location, source, screenshot path, and notification status/details. The latest 1,000 event records are retained, with screenshots managed under a separate bounded-retention policy.
+
+The pipeline tracks explicit source states including:
 
 ```text
 idle
@@ -585,158 +315,72 @@ disconnected
 error
 ```
 
-Runtime failures retain:
-
-* error stage,
-* error message,
-* UTC timestamp.
-
-This allows the dashboard and API to distinguish normal completion from failure.
-
-The current live-stream reader performs one reconnect attempt.
-
-Sustained RTSP recovery has not yet been benchmarked.
+Failures retain their stage, message, and UTC timestamp for inspection through the API and dashboard.
 
 ---
 
-# Event History
+## Testing
 
-Events are stored locally in:
-
-```text
-logs/event_history.json
-```
-
-Each event can contain:
-
-* event ID
-* timestamp
-* detected class
-* confidence
-* location
-* source
-* screenshot path
-* notification status
-* notification channel
-* notification completion timestamp
-* notification error
-* notification suppression reason
-
-The latest 1,000 event records are retained.
-
-Screenshots are stored separately and have their own bounded retention policy.
-
-The local JSON store is intended for a single pipeline process and is not designed as a multi-writer production database.
-
----
-
-# Testing
-
-Install development dependencies:
+Install development dependencies and run the suite:
 
 ```bash
 pip install -r requirements-dev.txt
-```
-
-Run:
-
-```bash
 python -m pytest -q
 ```
 
-The test suite covers:
-
-* temporal state transitions
-* detector logic
-* pipeline behavior
-* API behavior
-* runtime failure visibility
-* event persistence
-* notification suppression
-* mocked Telegram acceptance and rejection
-* uploaded-video handling
-* trace capture
-* evaluation reporting
-* replay of committed detector traces
-* case-study result consistency
-
-Synthetic and mocked tests verify implementation behavior.
-
-Saved real detector traces provide evidence only for the included case study.
+The tests cover temporal transitions, detector logic, pipeline and API behavior, runtime failure visibility, event persistence, notification suppression, mocked Telegram outcomes, uploaded-video handling, trace capture, evaluation reporting, strategy replay, and committed case-study consistency.
 
 ---
 
-# Third-Party Model
+## Repository structure
 
-The default checkpoint is sourced from:
+```text
+violence_detection/
+├── core/
+│   ├── detector.py
+│   ├── temporal.py
+│   ├── pipeline.py
+│   └── stream.py
+├── alerts/
+│   ├── alert_manager.py
+│   └── telegram_alert.py
+├── api/
+│   └── server.py
+├── dashboard/
+│   └── app.py
+├── evaluation/
+│   └── case_study/
+├── tests/
+├── config.py
+├── requirements.txt
+└── README.md
+```
 
-**Musawer1214/Fight-Violence-detection-yolov8**
+---
 
-and pinned to upstream commit:
+## Model provenance
+
+The default checkpoint comes from **Musawer1214/Fight-Violence-detection-yolov8** and is pinned to upstream commit:
 
 ```text
 20f0d05054cff7da2dc78dee3c2de1bd54106a13
 ```
 
-The checkpoint exposes:
-
-```text
-non_violence
-violence
-```
-
-with class ID `1` treated as violent by default.
-
-See:
-
-```text
-THIRD_PARTY_MODELS.md
-```
-
-for model provenance and attribution.
+It exposes the classes `non_violence` and `violence`, with class ID `1` treated as violent by default. See [`THIRD_PARTY_MODELS.md`](THIRD_PARTY_MODELS.md) for provenance and attribution.
 
 ---
 
-# Current Limitations
+## Scope and limitations
 
-This project is an applied ML systems experiment, not a production surveillance product.
+This repository is an applied ML systems project built around a third-party violence classifier. The eight-clip case study is useful for comparing temporal policies within the included scenes, but it is not a general violence-detection benchmark.
 
-Important limitations include:
+Current boundaries include frame-count-based temporal decisions, video-time rather than end-to-end alert latency measurements, single-process JSON persistence, one reconnect attempt for live streams, no durable Telegram retry queue, and cooperative pipeline shutdown. The pretrained detector also defines what the temporal layer can act on; events the classifier does not recognize cannot be recovered by filtering alone.
 
-* the underlying violence classifier is pretrained and third-party;
-* the current evaluation contains only eight reviewed clips;
-* the case study is not a general accuracy benchmark;
-* fencing was missed by the underlying detector;
-* temporal decisions currently depend on consecutive processed frames rather than wall-clock time;
-* alert delay is measured in video time rather than full end-to-end latency;
-* sustained RTSP operation has not been benchmarked;
-* local JSON persistence is not suitable for multiple concurrent writers;
-* uploaded dashboard videos are not automatically purged;
-* Telegram delivery has no durable retry queue;
-* stopping the pipeline is cooperative, so an active model call or OpenCV read can delay shutdown.
+Future evaluation can extend scene diversity, test more held-out temporal settings, compare time-based qualification, measure end-to-end alert latency, and exercise longer RTSP runs.
 
 ---
 
-# Planned Improvements
-
-The next evaluation stage will focus on increasing scene diversity and testing more difficult edge cases.
-
-Planned work includes:
-
-* expanding the evaluation set with more violent and nonviolent clips;
-* adding additional hard negatives such as sports, running, dancing, arguments, and rapid motion;
-* testing additional rolling-window settings on held-out clips without selecting them on the current development traces;
-* evaluating time-based event qualification rather than frame-count-only thresholds;
-* measuring end-to-end alert latency;
-* testing longer-running RTSP streams.
-
----
-
-# What This Project Demonstrates
-
-This repository is primarily an exercise in building a reliable system around imperfect ML predictions.
-
-It demonstrates work across:
+## What this project demonstrates
 
 ```text
 Computer Vision
@@ -756,12 +400,10 @@ Testing
 Runtime Diagnostics
 ```
 
-Rather than treating every model prediction as a final decision, the system introduces an explicit event layer that can be evaluated, tested, persisted, and monitored independently.
+Rather than treating every model prediction as a final decision, the system introduces an explicit event layer that can be evaluated, persisted, tested, and monitored independently.
 
 ---
 
-# Responsible Use
+## Responsible use
 
-Process only footage and camera sources you are authorized to use.
-
-The system is experimental and should not be used for autonomous safety decisions, law-enforcement decisions, or unreviewed surveillance.
+Process only footage and camera sources you are authorized to use. This system is experimental and should not be used for autonomous safety decisions, law-enforcement decisions, or unreviewed surveillance.
