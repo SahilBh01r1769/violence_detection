@@ -158,6 +158,14 @@ class ViolenceDetector:
     def event_active(self) -> bool:
         return self._temporal.event_active
 
+    @property
+    def positive_run(self) -> int:
+        return self._temporal.positive_run
+
+    @property
+    def negative_run(self) -> int:
+        return self._temporal.negative_run
+
     @staticmethod
     def annotate_frame(result: DetectionResult) -> np.ndarray:
         frame = result.frame.copy()

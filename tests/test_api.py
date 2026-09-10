@@ -10,6 +10,8 @@ class FakeDetector:
     frame_consistency = 5
     negative_release_frames = 1
     event_active = False
+    positive_run = 2
+    negative_run = 0
     def set_frame_consistency(self, value):
         self.frame_consistency = value
     def set_negative_release_frames(self, value):
@@ -40,6 +42,7 @@ class FakePipeline:
         self._running = False
         self.frames_processed = 0
         self.events_recorded = 1
+        self.current_event_ids = [7]
         self.uptime = 0
         self.fps = 0
         self.source_state = "disconnected"
@@ -73,6 +76,8 @@ def test_status_exposes_runtime_and_notification_failures(monkeypatch):
 
     assert data["source_state"] == "disconnected"
     assert data["event_active"] is False
+    assert data["positive_run"] == 2
+    assert data["negative_run"] == 0
     assert data["last_error"]["stage"] == "source"
     assert data["events_recorded"] == 1
     assert data["notifications_accepted"] == 0
@@ -80,6 +85,27 @@ def test_status_exposes_runtime_and_notification_failures(monkeypatch):
     assert data["latest_notification"]["error"] == "telegram unavailable"
     assert data["telegram_enabled"] is True
     assert data["telegram_configured"] is True
+
+
+def test_current_alerts_excludes_persisted_events_from_older_runs(monkeypatch):
+    pipeline = FakePipeline()
+    old = SimpleNamespace(id=6, detected_class="violence")
+    current = SimpleNamespace(id=7, detected_class="violence")
+    monkeypatch.setattr(server, "_pipeline", pipeline)
+    monkeypatch.setattr(server, "_history_records", lambda: [current, old])
+
+    data = TestClient(server.app).get("/alerts/current").json()
+
+    assert data["total"] == 1
+    assert [event["id"] for event in data["alerts"]] == [7]
+
+
+def test_current_alerts_is_empty_before_first_run(monkeypatch):
+    monkeypatch.setattr(server, "_pipeline", None)
+
+    data = TestClient(server.app).get("/alerts/current").json()
+
+    assert data == {"alerts": [], "total": 0}
 
 
 def test_status_retains_latest_notification_failure_while_pipeline_is_idle(

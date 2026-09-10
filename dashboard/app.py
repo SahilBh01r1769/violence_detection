@@ -53,10 +53,33 @@ html, body, [data-testid="stAppViewContainer"] {
   font-family: Arial, Helvetica, sans-serif;
 }
 [data-testid="stSidebar"] {
-  background: #e4ded4;
+  background: #e8e2d8;
   border-right: 1px solid var(--line);
 }
 h1, h2, h3 { color: var(--ink) !important; letter-spacing: -0.02em; }
+[data-testid="stAppViewContainer"] .block-container {
+  max-width: 1180px;
+  padding-top: 2rem;
+}
+.hero {
+  background: linear-gradient(135deg, #2f3e46 0%, #50616d 62%, #82503a 100%);
+  color: #fff;
+  padding: 22px 26px;
+  border-radius: 10px;
+  margin-bottom: 20px;
+}
+.hero h1 { color: #fff !important; margin: 0 0 6px; font-size: 2rem; }
+.hero p { margin: 0; max-width: 780px; color: #eee9e2; }
+.section-note { color: var(--muted); margin-top: -8px; margin-bottom: 14px; }
+.event-card {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-left: 5px solid var(--accent);
+  border-radius: 7px;
+  padding: 14px 16px;
+  margin-bottom: 10px;
+}
+.event-card strong { font-size: 1.05rem; }
 [data-testid="stMetric"] {
   background: var(--panel);
   border: 1px solid var(--line);
@@ -185,7 +208,7 @@ with st.sidebar:
     st.subheader("Input")
     source_kind = st.selectbox(
         "Source type",
-        ["Upload video", "Local video path", "Webcam", "RTSP"],
+        ["Webcam", "Upload video", "Local video path", "RTSP"],
     )
     source_ready = True
     if source_kind == "Upload video":
@@ -251,14 +274,24 @@ with st.sidebar:
     st.caption(f"API: {API_BASE}")
 
 if page == "Pipeline":
-    st.header("Pipeline")
+    st.markdown(
+        """
+        <div class="hero">
+          <h1>Temporal Violence Events</h1>
+          <p>Frame-level model predictions are qualified into persistent events. Local recording is canonical; Telegram is an optional notification path.</p>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
     status = api_get("/status", {}) or {}
     m1, m2, m3, m4 = st.columns(4)
     m1.metric("Source", str(status.get("source_state", "idle")).title())
     m2.metric("Frames", f"{status.get('frames_processed', 0):,}")
-    m3.metric("Event history", status.get("event_history_count", 0))
+    m3.metric("Current events", status.get("events_recorded", 0))
     m4.metric("FPS", f"{status.get('fps', 0):.1f}")
 
+    st.subheader("Current frame")
+    st.markdown('<p class="section-note">Bounding boxes show the checkpoint class and confidence. This model knows only violence and non-violence classes.</p>', unsafe_allow_html=True)
     frame_loading = loading_placeholder(tall=True)
     frame_b64 = live_frame_b64()
     frame_loading.empty()
@@ -290,13 +323,40 @@ if page == "Pipeline":
             "establish that a person read it."
         )
 
-    st.write(
-        f"Cooldown remaining: **{status.get('cooldown_remaining', 0):.0f}s** | "
-        f"Confidence: **{status.get('confidence', setting('confidence', CONFIDENCE_THRESHOLD)):.2f}** | "
-        f"Positive qualification: **{status.get('frame_consistency', setting('frame_consistency', FRAME_CONSISTENCY))} frames** | "
-        f"Negative release: **{status.get('negative_release_frames', setting('negative_release_frames', NEGATIVE_RELEASE_FRAMES))} frames** | "
-        f"Event active: **{'yes' if status.get('event_active') else 'no'}**"
+    st.subheader("Temporal state")
+    t1, t2, t3, t4 = st.columns(4)
+    t1.metric("Event", "Active" if status.get("event_active") else "Idle")
+    t2.metric(
+        "Positive run",
+        f"{status.get('positive_run', 0)} / {status.get('frame_consistency', setting('frame_consistency', FRAME_CONSISTENCY))}",
     )
+    t3.metric(
+        "Negative run",
+        f"{status.get('negative_run', 0)} / {status.get('negative_release_frames', setting('negative_release_frames', NEGATIVE_RELEASE_FRAMES))}",
+    )
+    t4.metric("Cooldown", f"{status.get('cooldown_remaining', 0):.0f}s")
+    st.caption(
+        f"Decision confidence ≥ {status.get('confidence', setting('confidence', CONFIDENCE_THRESHOLD)):.2f}. "
+        "N positive frames start an event; K negative frames end it."
+    )
+
+    st.subheader("Events from this run")
+    st.markdown('<p class="section-note">Older records remain available on the Event History page.</p>', unsafe_allow_html=True)
+    current = api_get("/alerts/current", {"alerts": []}) or {"alerts": []}
+    current_events = current.get("alerts", [])
+    if not current_events:
+        st.info("No event has been qualified in this run.")
+    else:
+        for event in current_events[:6]:
+            notification = event.get("notification_status", "not_attempted").replace("_", " ").title()
+            st.markdown(
+                f'<div class="event-card"><strong>Event #{event["id"]} · {event.get("detected_class", "unknown")}</strong><br>'
+                f'{float(event.get("confidence", 0)):.0%} confidence · {event.get("timestamp", "unknown time")} · Telegram: {notification}</div>',
+                unsafe_allow_html=True,
+            )
+            screenshot = event_screenshot(int(event["id"]))
+            if screenshot:
+                st.image(screenshot, width=420)
     if st.checkbox("Refresh frame and status every second", value=False):
         time.sleep(1)
         st.rerun()

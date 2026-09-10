@@ -79,6 +79,7 @@ class DetectionPipeline:
         )
         self.frames_processed = 0
         self.events_recorded = 0
+        self.current_event_ids: list[int] = []
         self.start_time = 0.0
         self.end_time = 0.0
         self.source_state = "idle"
@@ -88,6 +89,7 @@ class DetectionPipeline:
         source = normalise_source(source)
         self.frames_processed = 0
         self.events_recorded = 0
+        self.current_event_ids = []
         self.start_time = time.time()
         self.end_time = 0.0
         self.source_state = "connecting"
@@ -123,6 +125,7 @@ class DetectionPipeline:
                                 source=safe_source_label(source),
                             )
                             self.events_recorded += 1
+                            self.current_event_ids.append(event.id)
                         except Exception as exc:
                             self._record_error("alert", exc)
                             raise

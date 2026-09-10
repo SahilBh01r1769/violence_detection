@@ -57,6 +57,7 @@ def test_pipeline_persists_event_when_notifications_are_disabled(
     assert pipeline.events_recorded == 1
     assert pipeline.alert_manager.total_events == 1
     event = pipeline.alert_manager.history[0]
+    assert pipeline.current_event_ids == [event.id]
     assert event.source == "sample.mp4"
     assert event.notification_status == "not_attempted"
     assert event.notification_suppression_reason == "telegram_disabled"

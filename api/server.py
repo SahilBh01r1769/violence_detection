@@ -104,6 +104,8 @@ def status():
         "frame_consistency": _pipeline.detector.frame_consistency,
         "negative_release_frames": _pipeline.detector.negative_release_frames,
         "event_active": _pipeline.detector.event_active,
+        "positive_run": _pipeline.detector.positive_run,
+        "negative_run": _pipeline.detector.negative_run,
         "telegram_enabled": _pipeline.alert_manager.enable_telegram,
         "telegram_configured": bool(
             _pipeline.alert_manager.telegram_bot_token
@@ -119,6 +121,16 @@ def get_alerts(page: int = Query(1, ge=1), per_page: int = Query(20, ge=1, le=10
     start = (page - 1) * per_page
     items = history[start:start + per_page]
     return {"alerts": [vars(alert) for alert in items], "total": total, "page": page, "per_page": per_page, "pages": (total + per_page - 1) // per_page}
+
+
+@app.get("/alerts/current")
+def get_current_alerts():
+    """Return events created by the current or most recently completed run."""
+    if _pipeline is None:
+        return {"alerts": [], "total": 0}
+    current_ids = set(_pipeline.current_event_ids)
+    items = [record for record in _history_records() if record.id in current_ids]
+    return {"alerts": [vars(alert) for alert in items], "total": len(items)}
 
 
 @app.get("/alerts/{alert_id}/screenshot")

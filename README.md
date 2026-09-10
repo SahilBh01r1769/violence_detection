@@ -430,10 +430,21 @@ streamlit run dashboard/app.py --server.port 8501
 
 The dashboard supports:
 
+* webcam index such as `0` (the default selection)
 * uploaded video
 * local video-file path
-* webcam index such as `0`
 * RTSP URL
+
+The Pipeline page is scoped to the current run: it shows the current frame,
+temporal counters, runtime state, and events created since that run started.
+Older records remain persisted and can be reviewed or exported from the
+separate Event History page.
+
+Bounding boxes display the class and confidence returned by the checkpoint.
+Because the supplied specialized checkpoint exposes only `violence` and
+`non_violence`, it cannot identify general objects such as people or weapons.
+Doing that would require a second object-detection model and is intentionally
+outside this focused temporal-filter pipeline.
 
 ---
 
