@@ -32,6 +32,7 @@ from config import (
     TEMPORAL_STRATEGY,
 )
 from dashboard.video_input import persist_uploaded_video
+from dashboard.presentation import history_display_rows, notification_label
 
 API_BASE = os.getenv("API_BASE", "http://localhost:8000")
 st.set_page_config(page_title="Temporal Violence Events", layout="wide")
@@ -407,15 +408,21 @@ elif page == "Event History":
                 or event.get("detected_class") == class_filter
             )
         ]
-        displayed = [
-            {
-                key: value
-                for key, value in event.items()
-                if key != "screenshot_path"
-            }
-            for event in filtered
-        ]
-        st.dataframe(displayed, use_container_width=True, hide_index=True)
+        displayed = history_display_rows(filtered)
+        st.dataframe(
+            displayed,
+            use_container_width=True,
+            hide_index=True,
+            column_config={
+                "ID": st.column_config.NumberColumn(width="small"),
+                "Time": st.column_config.TextColumn(width="medium"),
+                "Class": st.column_config.TextColumn(width="small"),
+                "Confidence": st.column_config.NumberColumn(format="percent", width="small"),
+                "Location": st.column_config.TextColumn(width="small"),
+                "Source": st.column_config.TextColumn(width="medium"),
+                "Telegram": st.column_config.TextColumn(width="medium"),
+            },
+        )
         st.download_button(
             "Export CSV",
             events_as_csv(filtered),
@@ -430,7 +437,9 @@ elif page == "Event History":
                     screenshot,
                     caption=(
                         f"Event #{event['id']}: "
-                        f"{event.get('detected_class', 'unknown')}"
+                        f"{event.get('detected_class', 'unknown')} · "
+                        f"{float(event.get('confidence', 0)):.0%} · "
+                        f"Telegram: {notification_label(event)}"
                     ),
                 )
 
