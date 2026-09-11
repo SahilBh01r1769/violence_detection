@@ -73,6 +73,13 @@ def _latest_notification(history):
     }
 
 
+def _current_run_records(history):
+    if _pipeline is None:
+        return []
+    current_ids = set(_pipeline.current_event_ids)
+    return [record for record in history if record.id in current_ids]
+
+
 @app.get("/health")
 def health():
     return {"status": "ok", "timestamp": time.time()}
@@ -81,19 +88,20 @@ def health():
 @app.get("/status")
 def status():
     history = _history_records()
+    current_history = _current_run_records(history)
     if _pipeline is None:
         return {
             "running": False,
             "source_state": "idle",
             "last_error": None,
-            "latest_notification": _latest_notification(history),
+            "latest_notification": None,
             "event_history_count": len(history),
         }
     return {
         "running": _pipeline._running,
         "source_state": _pipeline.source_state,
         "last_error": _pipeline.last_error.as_dict() if _pipeline.last_error else None,
-        "latest_notification": _latest_notification(history),
+        "latest_notification": _latest_notification(current_history),
         "frames_processed": _pipeline.frames_processed,
         "events_recorded": _pipeline.events_recorded,
         "notifications_accepted": _pipeline.alert_manager.accepted_notifications,
@@ -132,8 +140,7 @@ def get_current_alerts():
     """Return events created by the current or most recently completed run."""
     if _pipeline is None:
         return {"alerts": [], "total": 0}
-    current_ids = set(_pipeline.current_event_ids)
-    items = [record for record in _history_records() if record.id in current_ids]
+    items = _current_run_records(_history_records())
     return {"alerts": [vars(alert) for alert in items], "total": len(items)}
 
 

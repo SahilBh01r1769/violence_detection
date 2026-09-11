@@ -113,7 +113,7 @@ def test_current_alerts_is_empty_before_first_run(monkeypatch):
     assert data == {"alerts": [], "total": 0}
 
 
-def test_status_retains_latest_notification_failure_while_pipeline_is_idle(
+def test_status_does_not_present_persisted_notification_as_current_while_idle(
     monkeypatch,
 ):
     monkeypatch.setattr(server, "_pipeline", None)
@@ -122,7 +122,18 @@ def test_status_retains_latest_notification_failure_while_pipeline_is_idle(
     data = TestClient(server.app).get("/status").json()
 
     assert data["source_state"] == "idle"
-    assert data["latest_notification"]["status"] == "failed"
+    assert data["latest_notification"] is None
+
+
+def test_status_excludes_notification_from_an_older_run(monkeypatch):
+    pipeline = FakePipeline()
+    pipeline.current_event_ids = []
+    monkeypatch.setattr(server, "_pipeline", pipeline)
+
+    data = TestClient(server.app).get("/status").json()
+
+    assert data["latest_notification"] is None
+    assert data["event_history_count"] == 1
 
 
 def test_config_updates_all_supported_settings(monkeypatch):
