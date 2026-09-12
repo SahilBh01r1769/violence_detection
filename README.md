@@ -130,14 +130,7 @@ Send Telegram if eligible
 
 This keeps event history independent from Telegram configuration, cooldowns, or delivery failures.
 
-| Notification status | Meaning |
-|---|---|
-| `not_attempted` | Notification was disabled or suppressed |
-| `queued` | Submission worker started |
-| `accepted` | Telegram API accepted the request |
-| `failed` | Submission failed or the outcome became unavailable |
-
-Cooldown begins only after an accepted Telegram submission; it does not suppress local event creation.
+Records distinguish `not_attempted`, `queued`, `accepted`, and `failed`. An accepted submission starts cooldown but never suppresses local event creation.
 
 ---
 
@@ -225,49 +218,13 @@ additional batch therefore reinforces consecutive qualification as the default.
 This remains a modest stock-video evaluation, not a benchmark or a claim of
 general-world accuracy.
 
-The reproducible manifest, trace metadata, per-clip comparison, and aggregate
-table are in [`evaluation/held_out/`](evaluation/held_out/). Recreate the
-frozen report after obtaining the source clips with:
-
-```bash
-python -m evaluation.held_out_report
-```
+The reproducible manifest, trace metadata, per-clip comparison, and aggregate table are in [`evaluation/held_out/`](evaluation/held_out/).
 
 ---
 
 ## Reproducing the evaluation
 
-Run a temporal replay:
-
-```bash
-python -m evaluation.temporal evaluation/case_study/violence_trace.csv \
-  --confidence-thresholds 0.40,0.55,0.70,0.85 \
-  --thresholds 1,3,5,10 \
-  --negative-release-frames 1,3
-```
-
-Generate the combined result table:
-
-```bash
-python -m evaluation.report \
-  --trace nonviolence=evaluation/case_study/nonviolence_trace.csv \
-  --trace violence=evaluation/case_study/violence_trace.csv \
-  --csv evaluation/case_study/summary.csv
-```
-
-Compare temporal strategies:
-
-```bash
-python -m evaluation.compare_strategies \
-  --trace original_nonviolence=evaluation/case_study/nonviolence_trace.csv \
-  --trace original_violence=evaluation/case_study/violence_trace.csv \
-  --confidence 0.70 --consecutive-frames 5 \
-  --rolling-minimum 5 --rolling-window 7 \
-  --negative-release-frames 3 \
-  --csv strategy_comparison.csv
-```
-
-New trace captures also generate metadata containing the source-video SHA-256, model-checkpoint SHA-256, Python version, Ultralytics version, OpenCV version, and NumPy version.
+Replay, report generation, and strategy comparison are implemented in [`evaluation/`](evaluation/), with case-study commands documented in [`evaluation/case_study/README.md`](evaluation/case_study/README.md). New captures record source and model hashes alongside dependency versions.
 
 ---
 
@@ -309,39 +266,13 @@ python -m core.pipeline \
 
 ## Configuration
 
-Default temporal settings:
-
-```text
-CONFIDENCE_THRESHOLD=0.70
-FRAME_CONSISTENCY=5
-NEGATIVE_RELEASE_FRAMES=3
-TEMPORAL_STRATEGY=consecutive
-ROLLING_WINDOW_SIZE=7
-ALERT_COOLDOWN_SECONDS=30
-FPS_TARGET=20
-```
-
-`FRAME_CONSISTENCY` is N for the consecutive policy and M for rolling-window voting. `ROLLING_WINDOW_SIZE` applies only to the rolling policy and must be at least M.
-
-`ALERT_COOLDOWN_SECONDS` controls the interval between accepted Telegram submissions without suppressing locally recorded events.
-
-`FPS_TARGET` limits video ingestion rate. Dashboard FPS represents processed frames divided by elapsed runtime; it is a runtime throughput indicator rather than a standardized inference benchmark.
+Defaults are `C=0.70`, `N=5`, `K=3`, consecutive filtering, a seven-frame rolling window, 30-second alert cooldown, and a 20 FPS ingestion target. Override them through the root `.env`; [`config.py`](config.py) and [`.env.example`](.env.example) contain the complete reference.
 
 ---
 
 ## Telegram alerts
 
-Telegram integration is optional and disabled by default.
-
-```dotenv
-ENABLE_TELEGRAM_ALERTS=true
-TELEGRAM_BOT_TOKEN=your_private_bot_token
-TELEGRAM_CHAT_ID=your_recipient_chat_id
-```
-
-Create a bot through Telegram BotFather, send `/start` from the recipient account, and use that conversation's chat ID. Eligible events send the saved event screenshot through the Telegram Bot API.
-
-Telegram event images were successfully received during a live project test on **September 8, 2026**.
+Telegram is optional and disabled by default. Credentials are configured through `.env`; eligible events send their saved screenshots. Image receipt was verified on **September 8, 2026**.
 
 ---
 
@@ -349,19 +280,7 @@ Telegram event images were successfully received during a live project test on *
 
 Events are stored locally in `logs/event_history.json`. Records can include event ID, timestamp, detected class, confidence, location, source, screenshot path, and notification status/details. The latest 1,000 event records are retained, with screenshots managed under a separate bounded-retention policy.
 
-The pipeline tracks explicit source states including:
-
-```text
-idle
-connecting
-connected
-ended
-stopped
-disconnected
-error
-```
-
-Failures retain their stage, message, and UTC timestamp for inspection through the API and dashboard.
+Runtime state distinguishes normal completion, manual stopping, disconnection, and failure. Failures retain their stage, message, and UTC timestamp for inspection through the API and dashboard.
 
 ---
 
@@ -375,32 +294,6 @@ python -m pytest -q
 ```
 
 The tests cover temporal transitions, detector logic, pipeline and API behavior, runtime failure visibility, event persistence, notification suppression, mocked Telegram outcomes, uploaded-video handling, trace capture, evaluation reporting, strategy replay, and committed case-study consistency.
-
----
-
-## Repository structure
-
-```text
-violence_detection/
-├── core/
-│   ├── detector.py
-│   ├── temporal.py
-│   ├── pipeline.py
-│   └── stream.py
-├── alerts/
-│   ├── alert_manager.py
-│   └── telegram_alert.py
-├── api/
-│   └── server.py
-├── dashboard/
-│   └── app.py
-├── evaluation/
-│   └── case_study/
-├── tests/
-├── config.py
-├── requirements.txt
-└── README.md
-```
 
 ---
 
@@ -418,11 +311,7 @@ It exposes the classes `non_violence` and `violence`, with class ID `1` treated 
 
 ## Scope and limitations
 
-This repository is an applied ML systems project built around a third-party violence classifier. The eight-clip case study is useful for comparing temporal policies within the included scenes, but it is not a general violence-detection benchmark.
-
-Current boundaries include frame-count-based temporal decisions, video-time rather than end-to-end alert latency measurements, single-process JSON persistence, one reconnect attempt for live streams, no durable Telegram retry queue, and cooperative pipeline shutdown. The pretrained detector also defines what the temporal layer can act on; events the classifier does not recognize cannot be recovered by filtering alone.
-
-Future evaluation can extend scene diversity, test more held-out temporal settings, compare time-based qualification, measure end-to-end alert latency, and exercise longer RTSP runs.
+This is an applied systems study around a third-party frame classifier, not a newly trained model or a general benchmark. Temporal filtering cannot recover detector misses; the evaluation uses a limited stock-video sample and reports video-time delay. Persistence is local JSON and Telegram has no durable retry queue.
 
 ---
 
