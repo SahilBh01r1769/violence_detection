@@ -9,7 +9,7 @@ ROOT = Path(__file__).resolve().parent
 ASSETS = ROOT / "assets"
 CLIPS = {
     "Violent clip · boxing": {
-        "video": "https://videos.pexels.com/video-files/6296646/6296646-sd_960_406_25fps.mp4",
+        "video": str(ASSETS / "violent_annotated.mp4"),
         "frame": ASSETS / "violent_event.jpg",
         "frames": 312,
         "fps": 25.0,
@@ -21,7 +21,7 @@ CLIPS = {
         "source": "Pexels · men playing boxing · 6296646",
     },
     "Nonviolent clip · street scene": {
-        "video": "https://videos.pexels.com/video-files/33567764/14271282_960_540_60fps.mp4",
+        "video": str(ASSETS / "nonviolent_annotated.mp4"),
         "frame": None,
         "frames": 395,
         "fps": 30.0,
