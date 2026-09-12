@@ -8,9 +8,14 @@ The central problem is not simply detecting a positive frame. It is deciding **w
 
 ## Demo
 
-This walkthrough follows a clip from frame detections through temporal qualification and current-run event creation.
+These walkthroughs show the runtime flow and the controls used to review its results.
+
+### Clip analysis
 
 ![Clip analysis and temporal event qualification](docs/demo/clip-analysis.gif)
+
+### Settings and event history
+
 ![Settings and history of past events](docs/demo/settings-history.gif)
 
 ## Project snapshot
@@ -129,12 +134,6 @@ This keeps event history independent from Telegram configuration, cooldowns, or 
 | `failed` | Submission failed or the outcome became unavailable |
 
 Cooldown begins only after an accepted Telegram submission; it does not suppress local event creation.
-
-### Configuration and event review
-
-The second walkthrough shows configuration, persisted history, saved event screenshots, and notification outcomes.
-
-![Settings, event history, screenshots, and notification outcomes](docs/demo/settings-history.gif)
 
 ---
 
