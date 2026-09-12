@@ -10,16 +10,17 @@ The central problem is not simply detecting a positive frame. It is deciding **w
 
 These walkthroughs show the runtime flow and the controls used to review its results.
 
-<table>
-  <tr>
-    <th width="50%">Clip analysis</th>
-    <th width="50%">Settings and event history</th>
-  </tr>
-  <tr>
-    <td align="center"><img src="docs/demo/clip-analysis.gif" alt="Clip analysis and temporal event qualification" width="480"></td>
-    <td align="center"><img src="docs/demo/settings-history-demo.gif" alt="Settings and history of past events" width="480"></td>
-  </tr>
-</table>
+### Clip analysis
+
+<p align="center">
+  <img src="docs/demo/clip-analysis.gif" alt="Clip analysis and temporal event qualification" width="850">
+</p>
+
+### Settings and event history
+
+<p align="center">
+  <img src="docs/demo/settings-history-demo.gif" alt="Settings and history of past events" width="850">
+</p>
 
 ## Project snapshot
 
