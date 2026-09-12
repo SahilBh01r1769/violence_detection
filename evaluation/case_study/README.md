@@ -82,8 +82,7 @@ nine duplicate triggers, detected two of three positive clips, and missed one.
 The intermittent clip uses a coarse whole-clip label, so its 2.16-second value
 measures delay from video start rather than punch onset.
 
-`summary.csv` contains all 256 clip/configuration rows, and `tradeoff.svg`
-plots the false-trigger/delay trade-off. Metadata sidecars under `traces/`
+`summary.csv` contains all 256 clip/configuration rows. Metadata sidecars under `traces/`
 record the video hash, model hash, Python version, and inference dependency
 versions for each new capture.
 

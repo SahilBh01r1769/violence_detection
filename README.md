@@ -171,8 +171,6 @@ NEGATIVE_RELEASE_FRAMES=3
 
 The experiment shows the expected trade-off: permissive settings react quickly but create more false and duplicate events, while stronger settings improve stability at the cost of delay and missed detections.
 
-![Measured temporal-filter trade-off](evaluation/case_study/tradeoff.svg)
-
 At the selected setting, the additional nonviolent test clips remained clean while the MMA and intermittent-fighting clips were detected. Fencing remained a detector-level miss across the evaluated settings, illustrating the boundary between temporal filtering and the underlying classifier.
 
 ### Consecutive frames vs rolling-window voting
@@ -230,14 +228,13 @@ python -m evaluation.temporal evaluation/case_study/violence_trace.csv \
   --negative-release-frames 1,3
 ```
 
-Generate the combined table and trade-off plot:
+Generate the combined result table:
 
 ```bash
 python -m evaluation.report \
   --trace nonviolence=evaluation/case_study/nonviolence_trace.csv \
   --trace violence=evaluation/case_study/violence_trace.csv \
-  --csv evaluation/case_study/summary.csv \
-  --svg evaluation/case_study/tradeoff.svg
+  --csv evaluation/case_study/summary.csv
 ```
 
 Compare temporal strategies:

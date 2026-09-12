@@ -2,7 +2,7 @@ import csv
 import json
 
 from evaluation.capture_trace import file_sha256, write_capture_metadata
-from evaluation.report import build_rows, write_csv, write_svg
+from evaluation.report import build_rows, write_csv
 
 
 def test_report_and_capture_metadata(tmp_path):
@@ -13,12 +13,10 @@ def test_report_and_capture_metadata(tmp_path):
         encoding="utf-8",
     )
     rows = build_rows([("clip", trace)], [0.5, 0.7], [1, 2], [1, 3])
-    output_csv, output_svg = tmp_path / "summary.csv", tmp_path / "tradeoff.svg"
+    output_csv = tmp_path / "summary.csv"
     write_csv(rows, output_csv)
-    write_svg(rows, output_svg)
     with output_csv.open(newline="", encoding="utf-8") as handle:
         assert len(list(csv.DictReader(handle))) == 8
-    assert "Temporal-filter trade-off" in output_svg.read_text(encoding="utf-8")
 
     video, model = tmp_path / "video.mp4", tmp_path / "model.pt"
     video.write_bytes(b"video")
