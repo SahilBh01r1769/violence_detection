@@ -88,7 +88,7 @@ st.markdown(
     '<p class="section-note">Bounding boxes show the checkpoint class and confidence. This model knows only violence and non-violence classes.</p>',
     unsafe_allow_html=True,
 )
-st.video(selected["video"])
+st.video(selected["video"], autoplay=True, muted=True)
 
 st.subheader("Temporal state")
 t1, t2, t3, t4 = st.columns(4)
