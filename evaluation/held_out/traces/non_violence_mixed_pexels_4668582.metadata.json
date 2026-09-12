@@ -1,7 +1,7 @@
 {
   "trace": "non_violence_mixed_pexels_4668582.csv",
   "source_video_sha256": "0b12ac924a5a8779ed6e947d4276c43455d5e6ef01be0d02cfc0f0de24060465",
-  "model_path": "/workspace/scratch/7f677c3843b9/violence_evidence/models/violence_yolov8n.pt",
+  "model_path": "models/violence_yolov8n.pt",
   "model_sha256": "1714eef088cd4ae5fc8618f6f94890d476434298be6c7a2151faef18bef9d459",
   "python": "3.12.14",
   "packages": {

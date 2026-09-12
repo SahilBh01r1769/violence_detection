@@ -1,7 +1,7 @@
 {
   "trace": "violence_indoor_pexels_31000668.csv",
   "source_video_sha256": "80db8542f7210703795cdec5a9b0a09a135b21b9a9e190b793168ceb51ca2ec7",
-  "model_path": "/workspace/scratch/7f677c3843b9/violence_evidence/models/violence_yolov8n.pt",
+  "model_path": "models/violence_yolov8n.pt",
   "model_sha256": "1714eef088cd4ae5fc8618f6f94890d476434298be6c7a2151faef18bef9d459",
   "python": "3.12.14",
   "packages": {
