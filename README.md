@@ -4,6 +4,10 @@ A video monitoring system that turns noisy frame-level violence predictions into
 
 The project uses a pretrained YOLOv8 violence detector for frame inference, then adds the engineering around it: a custom temporal decision layer, event persistence, FastAPI controls, a Streamlit dashboard, Telegram alerts, runtime diagnostics, and reproducible threshold evaluation.
 
+## What I built
+
+I did not train the YOLO checkpoint used for frame inference. My work was the system around it: the temporal event logic, pipeline, event storage, API, dashboard, Telegram delivery, failure reporting, and the evaluation used to choose the default settings.
+
 The central problem is not simply detecting a positive frame. It is deciding **when a sequence of noisy predictions should become one real event**.
 
 ## Demo
@@ -81,6 +85,13 @@ idle
 The state machine is implemented independently from the model and is shared by live inference and offline trace replay.
 
 ---
+
+## How the approach changed
+
+- The first version treated positive frames too independently, which produced unstable and repeated alerts.
+- I added consecutive positive-frame qualification and negative-frame release so detections became persistent events.
+- I then tested rolling-window voting because it could tolerate brief negative predictions.
+- Rolling voting reacted slightly faster, but produced more false and duplicate events, so I kept the simpler consecutive-frame policy.
 
 ## Main engineering contribution
 
@@ -312,30 +323,6 @@ It exposes the classes `non_violence` and `violence`, with class ID `1` treated 
 ## Scope and limitations
 
 This is an applied systems study around a third-party frame classifier, not a newly trained model or a general benchmark. Temporal filtering cannot recover detector misses; the evaluation uses a limited stock-video sample and reports video-time delay. Persistence is local JSON and Telegram has no durable retry queue.
-
----
-
-## What this project demonstrates
-
-```text
-Computer Vision
-      +
-Temporal Event Logic
-      +
-Backend APIs
-      +
-State Management
-      +
-Alerting
-      +
-Evaluation
-      +
-Testing
-      +
-Runtime Diagnostics
-```
-
-Rather than treating every model prediction as a final decision, the system introduces an explicit event layer that can be evaluated, persisted, tested, and monitored independently.
 
 ---
 
