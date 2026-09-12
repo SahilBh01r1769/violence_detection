@@ -13,8 +13,8 @@ The central problem is not simply detecting a positive frame. It is deciding **w
 | Frame inference | Pretrained YOLOv8 violence checkpoint |
 | Event logic | Consecutive N-positive / K-negative state machine |
 | Alternative evaluated | Rolling M-of-W voting |
-| Evaluation | 4,213 saved frame observations across 32 temporal configurations |
-| Reviewed clips | 8 violent, nonviolent, and hard-negative scenes |
+| Evaluation | 17,289 saved frame observations across development and held-out clips |
+| Reviewed clips | 35 violent, nonviolent, and hard-negative scenes |
 | Runtime interfaces | FastAPI + Streamlit |
 | Alerts | Optional Telegram image notifications |
 | Verification | Automated tests + committed detector traces and result tables |
@@ -127,7 +127,7 @@ Cooldown begins only after an accepted Telegram submission; it does not suppress
 
 The temporal layer is evaluated without rerunning YOLO for every configuration. Each sample video is inferred once and saved as a frame-level detector trace, then those exact predictions are replayed through different temporal settings.
 
-The current case study uses **4,213 frame observations** across:
+The development case study uses **4,213 frame observations** across:
 
 - 4 confidence thresholds
 - 4 positive-frame thresholds
@@ -185,6 +185,37 @@ A second deterministic policy was replayed on the same 4,213 observations at `C=
 | Rolling M=5 of W=7 | 4 | 10 | 2 | 1 |
 
 Rolling voting reduced the coarse intermittent-clip delay from 2.16 to 1.92 video seconds, but also added one meeting false event and one MMA duplicate. The measured trade-off therefore did not justify replacing the simpler consecutive-frame default. Per-clip results are committed in [`evaluation/case_study/strategy_comparison.csv`](evaluation/case_study/strategy_comparison.csv).
+
+### Held-out clip batch
+
+The frozen operating point was then replayed on **27 additional clips** from
+independent stock-video scenes: **13,076 observations**, 9 reviewed positive
+intervals, and 18 nonviolent or hard-negative clips. Labels were reviewed from
+the footage before inference. Combat sports are treated as positive under the
+case-study convention; arguments, close contact, exercise, archery, and
+training against equipment are nonviolent unless a person-to-person violent
+interval is visible. The manifest records each source page and annotation.
+
+No confidence or temporal setting was retuned on this batch.
+
+| Policy | Total triggers | False triggers | Duplicate triggers | Positive intervals detected | Missed intervals | Mean alert delay |
+|---|---:|---:|---:|---:|---:|---:|
+| Consecutive N=5 | 44 | 22 | 17 | 5 / 9 | 4 | 3.4174 s |
+| Rolling M=5 of W=7 | 54 | 25 | 24 | 5 / 9 | 4 | 2.2727 s |
+
+Rolling voting was faster on detected intervals, but increased false and
+duplicate triggers without recovering an additional positive interval. The
+additional batch therefore reinforces consecutive qualification as the default.
+This remains a modest stock-video evaluation, not a benchmark or a claim of
+general-world accuracy.
+
+The reproducible manifest, trace metadata, per-clip comparison, and aggregate
+table are in [`evaluation/held_out/`](evaluation/held_out/). Recreate the
+frozen report after obtaining the source clips with:
+
+```bash
+python -m evaluation.held_out_report
+```
 
 ---
 

@@ -1,0 +1,28 @@
+clip,candidate_label,reviewed_label,lighting,ground_truth_intervals_seconds,source_url,annotation_note
+violence_indoor_pexels_6296646,violence,violence,indoor,0.000:12.480,https://www.pexels.com/video/men-playing-boxing-6296646/,Person-to-person boxing throughout; positive under the combat-sport convention.
+violence_indoor_pexels_31000668,violence,violence,indoor,0.000:41.680,https://www.pexels.com/video/intense-competitive-boxing-match-in-arena-31000668/,Boxing match throughout; positive under the combat-sport convention.
+violence_indoor_pexels_6296447,violence,violence,indoor,0.000:19.520,https://www.pexels.com/video/men-doing-sparring-6296447/,Person-to-person sparring throughout; positive under the combat-sport convention.
+violence_indoor_pexels_5752174,violence,violence,indoor,0.000:19.040,https://www.pexels.com/video/men-practicing-boxing-together-5752174/,Person-to-person boxing practice throughout; positive under the combat-sport convention.
+violence_indoor_pexels_6296443,violence,non_violence,indoor,,https://www.pexels.com/video/a-man-hitting-focus-mitts-6296443/,Focus-mitt training; no person is struck.
+violence_indoor_pexels_38631553,violence,violence,indoor,0.000:24.080,https://www.pexels.com/video/intense-muay-thai-sparring-session-at-indoor-dojo-38631553/,Person-to-person sparring throughout; positive under the combat-sport convention.
+violence_indoor_pexels_9481016,violence,violence,indoor,0.000:17.893,https://www.pexels.com/video/a-wrestling-match-in-the-dark-with-people-standing-in-the-ring-9481016/,Wrestling match throughout; positive under the combat-sport convention.
+violence_low_light_pexels_3069112,violence,non_violence,low_light,,https://www.pexels.com/video/young-student-athletes-practicing-the-skill-of-archery-3069112/,Archery practice; no violent act.
+violence_low_light_pexels_6296453,violence,violence,low_light,0.000:15.200,https://www.pexels.com/video/men-doing-sparring-6296453/,Person-to-person sparring throughout; positive under the combat-sport convention.
+violence_low_light_pexels_34425523,violence,non_violence,low_light,,https://www.pexels.com/video/intense-boxing-training-in-smoky-gym-34425523/,Heavy-bag training; no person is struck.
+violence_mixed_pexels_6269162,violence,violence,mixed,5.500:7.500,https://www.pexels.com/video/man-bullying-a-woman-6269162/,Brief staged physical confrontation; reviewed boundary uncertainty is about 0.5 seconds.
+violence_mixed_pexels_7640089,violence,non_violence,mixed,,https://www.pexels.com/video/business-colleagues-having-a-argument-7640089/,Heated verbal argument without physical contact.
+violence_mixed_pexels_8798079,violence,violence,mixed,0.500:7.800,https://www.pexels.com/video/angry-woman-hitting-a-man-with-flowers-8798079/,Repeated staged striking with flowers; reviewed boundary uncertainty is about 0.5 seconds.
+non_violence_daylight_pexels_34892306,non_violence,non_violence,daylight,,https://www.pexels.com/video/vibrant-street-life-in-ankara-turkey-34892306/,Crowded pedestrian street with no violent act.
+non_violence_daylight_pexels_33567764,non_violence,non_violence,daylight,,https://www.pexels.com/video/charming-street-with-people-walking-under-trees-33567764/,Distant pedestrians with no violent act.
+non_violence_daylight_pexels_38298405,non_violence,non_violence,daylight,,https://www.pexels.com/video/busy-pedestrian-crossing-in-tokyo-s-urban-street-38298405/,Busy pedestrian crossing with no violent act.
+non_violence_indoor_pexels_35315590,non_violence,non_violence,indoor,,https://www.pexels.com/video/casual-indoor-group-discussion-in-natural-light-35315590/,Indoor group discussion with no violent act.
+non_violence_indoor_pexels_3252422,non_violence,non_violence,indoor,,https://www.pexels.com/video/a-woman-staying-behind-after-a-business-meeting-3252422/,Business meeting with no violent act.
+non_violence_daylight_pexels_34359946,non_violence,non_violence,daylight,,https://www.pexels.com/video/vibrant-local-market-in-kathmandu-nepal-34359946/,Crowded market with no violent act.
+non_violence_mixed_pexels_4800446,non_violence,non_violence,mixed,,https://www.pexels.com/video/two-women-hugging-4800446/,Close physical contact without violence.
+non_violence_mixed_pexels_4668582,non_violence,non_violence,mixed,,https://www.pexels.com/video/couple-hugging-happily-4668582/,Close physical contact without violence.
+non_violence_mixed_pexels_8636278,non_violence,non_violence,mixed,,https://www.pexels.com/video/workmates-celebrating-success-8636278/,Fast celebratory gestures without violence.
+non_violence_low_light_pexels_7271837,non_violence,non_violence,low_light,,https://www.pexels.com/video/group-of-people-dancing-in-a-nightclub-7271837/,Low-light dancing with no violent act.
+non_violence_indoor_pexels_4754030,non_violence,non_violence,indoor,,https://www.pexels.com/video/a-woman-doing-push-ups-on-a-boxing-ring-4754030/,Exercise in a boxing setting with no violent act.
+non_violence_artificial_pexels_30921279,non_violence,non_violence,artificial,,https://www.pexels.com/video/crowded-commuter-train-journey-interior-30921279/,Crowded train interior with no violent act.
+non_violence_low_light_pexels_34659649,non_violence,non_violence,low_light,,https://www.pexels.com/video/silhouette-of-two-people-conversing-at-twilight-34659649/,Distant low-light conversation with no violent act.
+non_violence_mixed_pexels_38444006,non_violence,non_violence,mixed,,https://www.pexels.com/video/female-boxer-training-in-indoor-gym-38444006/,Solo boxing training; no person is struck.

@@ -1,0 +1,3 @@
+strategy,clips,total_triggers,false_triggers,duplicate_triggers,detected_events,missed_events,mean_alert_delay_seconds
+consecutive,27,44,22,17,5,4,3.4174
+rolling_window,27,54,25,24,5,4,2.2727

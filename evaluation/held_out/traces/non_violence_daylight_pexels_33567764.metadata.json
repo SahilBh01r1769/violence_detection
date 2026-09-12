@@ -1,0 +1,12 @@
+{
+  "trace": "non_violence_daylight_pexels_33567764.csv",
+  "source_video_sha256": "9d8d0f878a13ef41cfab773f31b76a6df40e447723ff33c15b5af53edc345e23",
+  "model_path": "/workspace/scratch/7f677c3843b9/violence_evidence/models/violence_yolov8n.pt",
+  "model_sha256": "1714eef088cd4ae5fc8618f6f94890d476434298be6c7a2151faef18bef9d459",
+  "python": "3.12.14",
+  "packages": {
+    "ultralytics": "8.4.149",
+    "opencv-python": "4.14.0.94",
+    "numpy": "2.5.3"
+  }
+}
