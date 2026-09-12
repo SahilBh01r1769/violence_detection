@@ -11,6 +11,7 @@ The central problem is not simply detecting a positive frame. It is deciding **w
 This walkthrough follows a clip from frame detections through temporal qualification and current-run event creation.
 
 ![Clip analysis and temporal event qualification](docs/demo/clip-analysis.gif)
+![Settings and history of past events](docs/demo/settings-history.gif)
 
 ## Project snapshot
 
