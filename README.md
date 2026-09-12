@@ -8,17 +8,9 @@ The central problem is not simply detecting a positive frame. It is deciding **w
 
 ## Demo
 
-The first walkthrough follows a clip from frame detections through temporal qualification and current-run event creation. The second shows configuration, persisted history, saved event screenshots, and notification outcomes.
+This walkthrough follows a clip from frame detections through temporal qualification and current-run event creation.
 
-<!-- DEMO_GIF_CLIP_ANALYSIS
-Upload the final GIF to docs/demo/clip-analysis.gif, then replace this comment with:
 ![Clip analysis and temporal event qualification](docs/demo/clip-analysis.gif)
--->
-
-<!-- DEMO_GIF_SETTINGS_HISTORY
-Upload the final GIF to docs/demo/settings-history.gif, then replace this comment with:
-![Settings, event history, screenshots, and notification outcomes](docs/demo/settings-history.gif)
--->
 
 ## Project snapshot
 
@@ -32,6 +24,8 @@ Upload the final GIF to docs/demo/settings-history.gif, then replace this commen
 | Runtime interfaces | FastAPI + Streamlit |
 | Alerts | Optional Telegram image notifications |
 | Verification | Automated tests + committed detector traces and result tables |
+
+![Current-run event with detector output and temporal state](docs/demo/current-event.png)
 
 ```mermaid
 flowchart LR
@@ -134,6 +128,12 @@ This keeps event history independent from Telegram configuration, cooldowns, or 
 | `failed` | Submission failed or the outcome became unavailable |
 
 Cooldown begins only after an accepted Telegram submission; it does not suppress local event creation.
+
+### Configuration and event review
+
+The second walkthrough shows configuration, persisted history, saved event screenshots, and notification outcomes.
+
+![Settings, event history, screenshots, and notification outcomes](docs/demo/settings-history.gif)
 
 ---
 
