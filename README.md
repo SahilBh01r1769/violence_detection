@@ -13,13 +13,13 @@ These walkthroughs show the runtime flow and the controls used to review its res
 ### Clip analysis
 
 <p align="center">
-  <img src="docs/demo/clip-analysis.gif" alt="Clip analysis and temporal event qualification" width="850">
+  <img src="docs/demo/clip-analysis.gif" alt="Clip analysis and temporal event qualification" width="550">
 </p>
 
 ### Settings and event history
 
 <p align="center">
-  <img src="docs/demo/settings-history-demo.gif" alt="Settings and history of past events" width="850">
+  <img src="docs/demo/settings-history-demo.gif" alt="Settings and history of past events" width="650">
 </p>
 
 ## Project snapshot
