@@ -6,6 +6,20 @@ The project uses a pretrained YOLOv8 violence detector for frame inference, then
 
 The central problem is not simply detecting a positive frame. It is deciding **when a sequence of noisy predictions should become one real event**.
 
+## Demo
+
+The first walkthrough follows a clip from frame detections through temporal qualification and current-run event creation. The second shows configuration, persisted history, saved event screenshots, and notification outcomes.
+
+<!-- DEMO_GIF_CLIP_ANALYSIS
+Upload the final GIF to docs/demo/clip-analysis.gif, then replace this comment with:
+![Clip analysis and temporal event qualification](docs/demo/clip-analysis.gif)
+-->
+
+<!-- DEMO_GIF_SETTINGS_HISTORY
+Upload the final GIF to docs/demo/settings-history.gif, then replace this comment with:
+![Settings, event history, screenshots, and notification outcomes](docs/demo/settings-history.gif)
+-->
+
 ## Project snapshot
 
 | Area | Current implementation |
