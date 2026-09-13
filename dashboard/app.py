@@ -34,7 +34,7 @@ st.set_page_config(page_title="Temporal Violence Events", layout="wide", initial
 st.markdown(
     """
 <style>
-:root{--page:#101417;--panel:#171D21;--raised:#20282D;--border:#344047;--text:#E7ECEF;--muted:#98A6AD;--amber:#D79A4A;--red:#C95B5B;--green:#5F8D7A;--blue:#6688A3}
+:root{--page:#151A1D;--panel:#1B2125;--raised:#20272B;--border:#3B474D;--text:#E7ECEF;--muted:#A6B0B5;--amber:#D79A4A;--red:#C95B5B;--green:#6F9B88;--blue:#7897AE}
 html,body,[data-testid="stAppViewContainer"],[data-testid="stHeader"]{background:var(--page);color:var(--text);font-family:Inter,Arial,sans-serif}
 [data-testid="stAppViewContainer"] .block-container{max-width:1320px;padding:1.2rem 2rem 3rem}
 [data-testid="stSidebar"],[data-testid="collapsedControl"]{display:none} h1,h2,h3,label,p,span,div{color:var(--text)}
@@ -42,15 +42,18 @@ h1{font-size:1.55rem!important;margin:0!important;letter-spacing:-.02em} h2{font
 .kicker{color:var(--amber);font-size:.72rem;letter-spacing:.11em;text-transform:uppercase}.note{color:var(--muted);font-size:.82rem;margin:-.55rem 0 .75rem}
 hr{border-color:var(--border)!important}[data-testid="stHorizontalBlock"]{align-items:stretch}
 [data-testid="stMetric"]{background:transparent;border:0;padding:.15rem .7rem}[data-testid="stMetricLabel"] p{color:var(--muted)!important;font-size:.7rem;text-transform:uppercase;letter-spacing:.05em}[data-testid="stMetricValue"]{font-size:1.05rem}
-.runtime{background:var(--panel);border:1px solid var(--border);border-radius:6px;padding:.5rem .7rem;margin:.9rem 0 1rem}
+.runtime{margin:.9rem 0 1rem}
 .frame{background:#090C0E;border:1px solid var(--border);border-radius:5px;padding:8px;min-height:260px}.frame img{display:block;width:100%;max-height:610px;object-fit:contain}
 .empty{min-height:330px;display:flex;align-items:center;justify-content:center;color:var(--muted);font-size:.86rem}
 .evidence{background:var(--raised);border:1px solid var(--border);border-radius:5px;padding:.65rem .8rem;margin-top:.7rem}
 .event{background:var(--panel);border:1px solid var(--border);border-left:3px solid var(--red);border-radius:5px;padding:.75rem .9rem;margin-bottom:.55rem}.meta{color:var(--muted);font-size:.82rem;line-height:1.55}
 .chip{display:inline-block;border:1px solid var(--border);border-radius:3px;padding:.17rem .45rem;font-size:.72rem;font-weight:650}.chip.normal{color:var(--green);border-color:var(--green)}.chip.info{color:var(--blue);border-color:var(--blue)}.chip.danger{color:var(--red);border-color:var(--red)}
-[data-testid="stForm"],[data-testid="stExpander"]{background:var(--panel);border:1px solid var(--border);border-radius:6px;box-shadow:none}[data-testid="stForm"]{padding:.9rem}
+[data-testid="stForm"],[data-testid="stExpander"],[data-testid="stVerticalBlockBorderWrapper"]{background:var(--panel);border-color:var(--border)!important;border-radius:6px;box-shadow:none}[data-testid="stForm"]{padding:.9rem}
 [data-testid="stAlert"]{border-radius:4px;border:1px solid var(--border);background:var(--raised)}
-.stButton>button,.stDownloadButton>button,[data-baseweb="select"]>div,[data-testid="stTextInputRootElement"],[data-testid="stNumberInputContainer"],[data-testid="stFileUploaderDropzone"]{border-radius:4px!important;box-shadow:none!important;border-color:var(--border)!important}
+.stButton>button,.stDownloadButton>button,[data-baseweb="select"]>div,[data-testid="stTextInputRootElement"],[data-testid="stNumberInputContainer"],[data-testid="stFileUploaderDropzone"]{background:var(--raised)!important;color:var(--text)!important;border-radius:4px!important;box-shadow:none!important;border-color:var(--border)!important}
+[data-baseweb="popover"],[data-baseweb="popover"]>div,[role="listbox"],[role="option"],[data-baseweb="menu"]{background:#252D31!important;color:var(--text)!important}
+[role="option"]:hover,[aria-selected="true"]{background:#344047!important}[role="option"] span,[role="option"] div{color:var(--text)!important}
+input,textarea,[data-baseweb="select"] span,[data-baseweb="select"] svg{color:var(--text)!important;fill:var(--text)!important}
 .stButton>button[kind="primary"]{background:var(--amber);color:#101417;border-color:var(--amber);font-weight:700}.stButton>button:hover{transform:none!important;border-color:var(--amber)!important}
 [data-testid="stDataFrame"]{border:1px solid var(--border);border-radius:4px}@media(max-width:760px){[data-testid="stAppViewContainer"] .block-container{padding:1rem}}
 </style>
@@ -161,14 +164,13 @@ def render_header() -> str:
 
 def render_runtime(status: dict) -> None:
     label, tone = runtime_state_label(status)
-    st.markdown('<div class="runtime">', unsafe_allow_html=True)
-    c1, c2, c3, c4, c5 = st.columns([1.05, 1.55, 1, 1, 1])
-    c1.markdown(f'<span class="chip {tone}">{label}</span>', unsafe_allow_html=True)
-    c2.metric("Source", compact_source_label(st.session_state.get("run_source", "Not selected")))
-    c3.metric("Frames", f"{int(status.get('frames_processed', 0) or 0):,}")
-    c4.metric("Events", int(status.get("events_recorded", 0) or 0))
-    c5.metric("Elapsed", format_duration(status.get("uptime_seconds", 0)))
-    st.markdown("</div>", unsafe_allow_html=True)
+    with st.container(border=True):
+        c1, c2, c3, c4, c5 = st.columns([1.05, 1.55, 1, 1, 1])
+        c1.markdown(f'<span class="chip {tone}">{label}</span>', unsafe_allow_html=True)
+        c2.metric("Source", compact_source_label(st.session_state.get("run_source", "Not selected")))
+        c3.metric("Frames", f"{int(status.get('frames_processed', 0) or 0):,}")
+        c4.metric("Events", int(status.get("events_recorded", 0) or 0))
+        c5.metric("Elapsed", format_duration(status.get("uptime_seconds", 0)))
 
 
 def render_event(event: dict, divider: bool = False) -> None:
@@ -182,16 +184,15 @@ def render_event(event: dict, divider: bool = False) -> None:
         if screenshot: st.image(screenshot, use_container_width=True)
         else: st.caption("Screenshot is no longer available in bounded local storage.")
     with detail_col:
-        st.markdown('<div class="event">', unsafe_allow_html=True)
-        st.markdown(f"**Event #{event.get('id')} · {event_class}**")
-        st.markdown('<div class="meta">' +
-            f"Confidence&nbsp;&nbsp; {float(event.get('confidence', 0)):.0%}<br>" +
-            f"Time&nbsp;&nbsp; {event_time}<br>" +
-            f"Location&nbsp;&nbsp; {event_location}<br>" +
-            f"Source&nbsp;&nbsp; {event_source}</div>", unsafe_allow_html=True)
-        st.caption("Notification outcome"); st.write(notification_label(event))
-        if event.get("notification_error"): st.error(str(event["notification_error"]))
-        st.markdown("</div>", unsafe_allow_html=True)
+        with st.container(border=True):
+            st.markdown(f"**Event #{event.get('id')} · {event_class}**")
+            st.markdown('<div class="meta">' +
+                f"Confidence&nbsp;&nbsp; {float(event.get('confidence', 0)):.0%}<br>" +
+                f"Time&nbsp;&nbsp; {event_time}<br>" +
+                f"Location&nbsp;&nbsp; {event_location}<br>" +
+                f"Source&nbsp;&nbsp; {event_source}</div>", unsafe_allow_html=True)
+            st.caption("Notification outcome"); st.write(notification_label(event))
+            if event.get("notification_error"): st.error(str(event["notification_error"]))
     if divider: st.divider()
 
 
@@ -201,7 +202,7 @@ page = render_header()
 if page == "Monitor":
     render_runtime(status)
     running = bool(status.get("running"))
-    controls, video = st.columns([.35, .65], gap="medium")
+    controls, video = st.columns([.30, .70], gap="large")
     with controls:
         st.subheader("Source")
         if running: st.caption("The current run owns these controls until it stops.")
@@ -233,12 +234,11 @@ if page == "Monitor":
         strategy = status.get("temporal_strategy", setting("temporal_strategy", TEMPORAL_STRATEGY))
         required = int(status.get("frame_consistency", setting("frame_consistency", FRAME_CONSISTENCY)))
         release = int(status.get("negative_release_frames", setting("negative_release_frames", NEGATIVE_RELEASE_FRAMES)))
-        st.markdown('<div class="evidence">', unsafe_allow_html=True)
-        e1, e2, e3 = st.columns([1, 1.25, 1.25])
-        e1.metric("Temporal state", temporal_phase(status))
-        e2.metric("Window positives" if strategy == "rolling_window" else "Positive frames", f"{int(status.get('positive_run', 0) or 0)} / {required}")
-        e3.metric("Negative release", f"{int(status.get('negative_run', 0) or 0)} / {release}")
-        st.markdown("</div>", unsafe_allow_html=True)
+        with st.container(border=True):
+            e1, e2, e3 = st.columns([1, 1.25, 1.25])
+            e1.metric("Temporal state", temporal_phase(status))
+            e2.metric("Window positives" if strategy == "rolling_window" else "Positive frames", f"{int(status.get('positive_run', 0) or 0)} / {required}")
+            e3.metric("Negative release", f"{int(status.get('negative_run', 0) or 0)} / {release}")
     st.subheader("Current-run events")
     st.markdown('<p class="note">Only this run appears here. Persisted records remain in Event history.</p>', unsafe_allow_html=True)
     current = (api_get("/alerts/current", {"alerts": []}) or {"alerts": []}).get("alerts", [])
