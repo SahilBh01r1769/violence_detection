@@ -263,7 +263,7 @@ python -m uvicorn api.server:app --host 0.0.0.0 --port 8000
 streamlit run dashboard/app.py --server.port 8501
 ```
 
-The dashboard supports webcam input, uploaded video, a local video path, and RTSP sources. The Pipeline page focuses on the current run, while older persisted records can be reviewed or exported from Event History.
+The dashboard supports webcam input, uploaded video, a local video path, and RTSP sources. The Monitor page focuses on the current run, while older persisted records can be reviewed or exported from Event history.
 
 ### Run the pipeline directly
 
