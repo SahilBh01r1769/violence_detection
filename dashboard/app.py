@@ -224,8 +224,11 @@ if page == "Monitor":
         st.subheader("Annotated frame")
         st.markdown('<p class="note">Frame-level detector output used by the temporal filter.</p>', unsafe_allow_html=True)
         frame = live_frame_b64()
-        if frame and status.get("source_state") != "idle":
+        frames_processed = int(status.get("frames_processed", 0) or 0)
+        if frame and frames_processed > 0:
             st.markdown(f'<div class="frame"><img src="data:image/jpeg;base64,{frame}" alt="Current annotated detector frame"></div>', unsafe_allow_html=True)
+        elif running:
+            st.markdown('<div class="frame empty">Waiting for the first inference result…</div>', unsafe_allow_html=True)
         else:
             st.markdown('<div class="frame empty">No frame available. Select a source and start the pipeline.</div>', unsafe_allow_html=True)
         error = status.get("last_error")
@@ -244,7 +247,9 @@ if page == "Monitor":
     current = (api_get("/alerts/current", {"alerts": []}) or {"alerts": []}).get("alerts", [])
     if not current: st.info("No event has qualified in this run.")
     for event in current[:8]: render_event(event)
-    if st.toggle("Auto-refresh every second", value=False): time.sleep(1); st.rerun()
+    if running:
+        time.sleep(1)
+        st.rerun()
 
 elif page == "Event history":
     st.subheader("Persistent event history")
